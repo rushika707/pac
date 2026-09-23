@@ -2,9 +2,9 @@ package generated_policy
 
 default decision := "PASS"
 
-# ================================================
+# ==================================================
 # Generic helpers
-# ================================================
+# ==================================================
 
 has_value(field) if {
     value := object.get(input.record, field, "")
@@ -12,16 +12,17 @@ has_value(field) if {
     value != ""
 }
 
-has_any(groups) if {
+has_any(fields) if {
     some i
-    some j
-    has_value(groups[i][j])
+    field := fields[i]
+    has_value(field)
 }
 
 all_groups_present(groups) if {
     every group in groups {
         some i
-        has_value(group[i])
+        field := group[i]
+        has_value(field)
     }
 }
 
@@ -36,103 +37,105 @@ text_matches(fields, patterns) if {
     regex.match(pattern, value)
 }
 
-# ================================================
+# ==================================================
 # Rule triggers
-# ================================================
+# ==================================================
 
 trigger_PII_01 if {
-    has_any([["first_name", "last_name"], ["full_name", "customer_name"]])
+    has_any(["customer_name"])
 }
 
 trigger_PII_02 if {
-    has_any([["email", "personal_email"], ["contact_email"]])
+    has_any(["email"])
 }
 
 trigger_PII_03 if {
-    has_any([["mobile", "telephone"], ["phone_number"]])
+    has_any(["phone"])
 }
 
 trigger_PII_04 if {
-    has_any([["address", "home_address"], ["street", "postcode with address"]])
+    has_any(["address"])
 }
 
 trigger_PII_05 if {
-    has_any([["ni_number", "nino"]])
+    has_any(["ni_number"])
 }
 
 trigger_PII_06 if {
-    has_any([["passport_number"]])
+    has_any(["passport_number"])
 }
 
 trigger_PII_07 if {
-    has_any([["driving_licence_number"]])
+    false
 }
 
 trigger_PII_08 if {
-    has_any([["bank_account", "sort_code"], ["credit_card_number"]])
+    has_any(["bank_account", "credit_card_number"])
 }
 
 trigger_PII_09 if {
-    has_any([["IP address", "device ID"], ["cookie ID", "user ID where linkable to a person"]])
+    has_any(["ip_address"])
 }
 
 trigger_SPII_01 if {
-    has_any([["medical_condition", "diagnosis"], ["treatment", "disability information"]])
+    has_any(["medical_condition"])
 }
 
 trigger_SPII_02 if {
-    has_any([["ethnicity", "race"], ["racial_origin"]])
+    has_any(["ethnicity"])
 }
 
 trigger_SPII_03 if {
-    has_any([["religion", "belief"]])
+    has_any(["religion"])
 }
 
 trigger_SPII_04 if {
-    has_any([["political_view", "party_preference"]])
+    has_any(["political_view"])
 }
 
 trigger_SPII_05 if {
-    has_any([["union_member", "trade_union"]])
+    false
 }
 
 trigger_SPII_06 if {
-    has_any([["faceprint", "fingerprint"], ["iris_scan", "DNA profile"]])
+    false
 }
 
 trigger_CPII_01 if {
-    all_groups_present([["full name", "date of birth"]])
+    all_groups_present([["customer_name"], ["dob"]])
 }
 
 trigger_CPII_02 if {
-    all_groups_present([["full name", "postal address"], ["full name", "postcode"]])
+    all_groups_present([["customer_name"], ["address"]])
 }
 
 trigger_CPII_03 if {
-    all_groups_present([["full name", "phone number"]])
+    all_groups_present([["customer_name"], ["phone"]])
 }
 
 trigger_CPII_04 if {
-    all_groups_present([["full name", "personal email address"]])
+    all_groups_present([["customer_name"], ["email"]])
 }
 
 trigger_CPII_05 if {
-    all_groups_present([["date of birth", "postcode", "gender"]])
+    false
 }
 
 trigger_CPII_06 if {
-    all_groups_present([["Employee ID", "department"], ["role where linkable to a person"]])
+    all_groups_present([["employee_id"], ["department"], ["job_role"]])
 }
 
 trigger_CPII_07 if {
-    all_groups_present([["Customer ID", "account event details"]])
+    false
 }
 
 trigger_CPII_08 if {
-    text_matches(["free-text comments"], ["personal identifiers"])
+    text_matches(["feedback"], ["(?i)[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}", "(?i)\\b(?:\\+44|0)\\d{9,10}\\b", "\\b(?:\\d[ -]?){13,19}\\b", "\\b[A-Z]{2}\\d{6}[A-Z]?\\b"])
 }
 
+# ==================================================
 # Triggered rules
+# ==================================================
 
 triggered_rules contains "PII-01" if {
     trigger_PII_01
@@ -226,13 +229,29 @@ triggered_rules contains "CPII-08" if {
     trigger_CPII_08
 }
 
-# ================================================
-# Outcome detection
-# ================================================
+# ==================================================
+# Outcome flags
+# ==================================================
 
 default has_block := false
 default has_flag := false
 default has_exception := false
+
+has_flag if {
+    trigger_PII_01
+}
+
+has_flag if {
+    trigger_PII_02
+}
+
+has_flag if {
+    trigger_PII_03
+}
+
+has_flag if {
+    trigger_PII_04
+}
 
 has_block if {
     trigger_PII_05
@@ -248,6 +267,10 @@ has_block if {
 
 has_block if {
     trigger_PII_08
+}
+
+has_flag if {
+    trigger_PII_09
 }
 
 has_block if {
@@ -272,26 +295,6 @@ has_block if {
 
 has_block if {
     trigger_SPII_06
-}
-
-has_flag if {
-    trigger_PII_01
-}
-
-has_flag if {
-    trigger_PII_02
-}
-
-has_flag if {
-    trigger_PII_03
-}
-
-has_flag if {
-    trigger_PII_04
-}
-
-has_flag if {
-    trigger_PII_09
 }
 
 has_flag if {
@@ -326,9 +329,9 @@ has_flag if {
     trigger_CPII_08
 }
 
-# ================================================
+# ==================================================
 # Final decision
-# ================================================
+# ==================================================
 
 decision := "BLOCK" if {
     has_block
@@ -345,9 +348,9 @@ decision := "EXCEPTION APPROVED" if {
     has_exception
 }
 
-# ================================================
+# ==================================================
 # Final result
-# ================================================
+# ==================================================
 
 result := {
     "decision": decision,

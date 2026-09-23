@@ -4,7 +4,7 @@ from pdf_reader import extract_text
 from policy_extractor import extract_policy
 
 
-BASE = Path(__file__).parent.parent
+BASE = Path(__file__).resolve().parent.parent
 
 PDF_FILE = BASE / "input" / "policy.pdf"
 OUTPUT_FILE = BASE / "policy" / "policy.json"
@@ -12,37 +12,39 @@ OUTPUT_FILE = BASE / "policy" / "policy.json"
 
 def main():
 
-    print("=" * 60)
-    print("POLICY PDF → JSON")
-    print("=" * 60)
+    print()
+    print("=" * 70)
+    print("POLICY EXTRACTION")
+    print("=" * 70)
 
-    print(f"\nPDF: {PDF_FILE}")
+    print()
+    print(f"Policy PDF:")
+    print(f"  {PDF_FILE}")
 
-    # --------------------------------------------------------
-    # 1. Extract PDF text
-    # --------------------------------------------------------
+    print()
+    print("Reading PDF...")
 
-    print("\n[1/2] Extracting PDF text...")
+    pdf_text = extract_text(str(PDF_FILE))
 
-    text = extract_text(PDF_FILE)
+    if not pdf_text.strip():
+        raise ValueError("No text extracted from policy PDF.")
 
-    print(f"Extracted characters: {len(text)}")
-
-    # --------------------------------------------------------
-    # 2. Send text to Qwen/Ollama
-    # --------------------------------------------------------
-
-    print("\n[2/2] Sending policy to Ollama...")
-
-    extract_policy(
-        pdf_text=text,
-        output_file=OUTPUT_FILE
+    print(
+        f"Extracted {len(pdf_text):,} characters."
     )
 
-    print("\nPolicy JSON generated:")
-    print(OUTPUT_FILE)
+    print()
+    print("Sending policy document to Qwen...")
 
-    print("\nDone.")
+    extract_policy(
+        pdf_text,
+        str(OUTPUT_FILE)
+    )
+
+    print()
+    print("=" * 70)
+    print("EXTRACTION COMPLETE")
+    print("=" * 70)
 
 
 if __name__ == "__main__":
