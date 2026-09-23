@@ -1,0 +1,408 @@
+{
+  "policies": [
+    {
+      "policy_name": "AI Training Data PII Policy",
+      "scope": "Student version"
+    },
+    {
+      "policy_metadata": {
+        "policy_id": "AI-DP-PII-001",
+        "policy_name": "AI Training Data PII Policy",
+        "version": "1.0",
+        "classification": "Internal",
+        "policy_owner": "Data Protection Office",
+        "applies_to": "Training, testing, fine-tuning and evaluation datasets used for AI, ML and analytics"
+      },
+      "review_cycle": "Annual or upon material change to privacy, AI or data governance requirements"
+    },
+    {
+      "Purpose": "This policy defines mandatory requirements for identifying, flagging and remediating personal data in datasets used for artificial intelligence, machine learning, model fine-tuning, model evaluation and analytics activities."
+    },
+    {
+      "Scope": "all datasets that are proposed for AI or machine learning use, including raw data, curated training data, labelled data, test data, validation data, embeddings, logs, prompts, responses and synthetic data derived from personal data"
+    },
+    {
+      "Policy Objective": "Datasets must be assessed before use. Records containing personal data must be flagged. Records containing unresolved personal data must not be used for AI training, fine-tuning or evaluation unless an approved exception is recorded."
+    },
+    [
+      {
+        "Term": "Personal data / PII",
+        "Policy definition": "Information that identifies, or can reasonably identify, a living individual either directly or in combination with other information."
+      },
+      {
+        "Term": "Direct identifier",
+        "Policy definition": "A data item that can identify an individual on its own."
+      },
+      {
+        "Term": "Indirect identifier",
+        "Policy definition": "A data item that may identify an individual when combined with other information."
+      },
+      {
+        "Term": "Sensitive personal data",
+        "Policy definition": "More sensitive information such as health, ethnicity, religion, political opinion, biometric or genetic information."
+      },
+      {
+        "Term": "Training data",
+        "Policy definition": "Any dataset used to train, fine-tune, evaluate or improve an AI, ML or analytics model."
+      },
+      {
+        "Term": "Flagged record",
+        "Policy definition": "A dataset record where one or more policy rules identify personal data or suspected personal data."
+      },
+      {
+        "Term": "Remediation",
+        "Policy definition": "Action taken to remove, mask, tokenise, generalise or anonymise personal data before dataset use."
+      }
+    ],
+    {
+      "direct_identifiers": "The following fields are treated as personal data when present in training data and must be flagged."
+    },
+    [
+      {
+        "Rule ID": "PII-01",
+        "PII type": "Full name",
+        "Examples": "first_name, last_name, full_name, customer_name",
+        "Required policy outcome": "Flag record"
+      },
+      {
+        "Rule ID": "PII-02",
+        "PII type": "Personal email address",
+        "Examples": "email, personal_email, contact_email",
+        "Required policy outcome": "Flag record"
+      },
+      {
+        "Rule ID": "PII-03",
+        "PII type": "Phone or mobile number",
+        "Examples": "mobile, telephone, phone_number",
+        "Required policy outcome": "Flag record"
+      },
+      {
+        "Rule ID": "PII-04",
+        "PII type": "Postal or home address",
+        "Examples": "address, home_address, street, postcode with address",
+        "Required policy outcome": "Flag record"
+      },
+      {
+        "Rule ID": "PII-05",
+        "PII type": "National Insurance number",
+        "Examples": "ni_number, nino",
+        "Required policy outcome": "Block until removed or approved"
+      },
+      {
+        "Rule ID": "PII-06",
+        "PII type": "Passport number",
+        "Examples": "passport_number",
+        "Required policy outcome": "Block until removed or approved"
+      },
+      {
+        "Rule ID": "PII-07",
+        "PII type": "Driving licence number",
+        "Examples": "driving_licence_number",
+        "Required policy outcome": "Block until removed or approved"
+      },
+      {
+        "Rule ID": "PII-08",
+        "PII type": "Bank account or payment card number",
+        "Examples": "bank_account, sort_code, credit_card_number",
+        "Required policy outcome": "Block until removed or approved"
+      },
+      {
+        "Rule ID": "PII-09",
+        "PII type": "Online identifier",
+        "Examples": "IP address, device ID, cookie ID, user ID where linkable to a person",
+        "Required policy outcome": "Flag record"
+      }
+    ],
+    {
+      "sensitive_personal_data": "The following fields are treated as sensitive personal data when present in training data and must be blocked unless a documented approval exists."
+    },
+    [
+      {
+        "Rule ID": "SPII-01",
+        "Sensitive data type": "Health or medical information",
+        "Examples": "medical_condition, diagnosis, treatment, disability information",
+        "Required policy outcome": "Block record"
+      },
+      {
+        "Rule ID": "SPII-02",
+        "Sensitive data type": "Ethnicity or racial origin",
+        "Examples": "ethnicity, race, racial_origin",
+        "Required policy outcome": "Block record"
+      },
+      {
+        "Rule ID": "SPII-03",
+        "Sensitive data type": "Religion or belief",
+        "Examples": "religion, belief",
+        "Required policy outcome": "Block record"
+      },
+      {
+        "Rule ID": "SPII-04",
+        "Sensitive data type": "Political opinion",
+        "Examples": "political_view, party_preference",
+        "Required policy outcome": "Block record"
+      },
+      {
+        "Rule ID": "SPII-05",
+        "Sensitive data type": "Trade union membership",
+        "Examples": "union_member, trade_union",
+        "Required policy outcome": "Block record"
+      },
+      {
+        "Rule ID": "SPII-06",
+        "Sensitive data type": "Biometric or genetic data",
+        "Examples": "faceprint, fingerprint, iris_scan, DNA profile",
+        "Required policy outcome": "Block record"
+      }
+    ],
+    {
+      "indirect_identifiers": "Some fields may not identify a person on their own but can identify a person when combined with other attributes.",
+      "combinations": "The following combinations must be flagged as personal data."
+    },
+[
+  {
+    "Rule ID": "CPII-01",
+    "Combination rule": "Full name + date of birth",
+    "Required policy outcome": "Flag record",
+    "execution": {
+      "type": "combination",
+      "fields": [
+        ["customer_name", "full_name", "first_name", "last_name"],
+        ["dob", "date_of_birth", "birth_date"]
+      ]
+    }
+  },
+  {
+    "Rule ID": "CPII-02",
+    "Combination rule": "Full name + postal address or postcode",
+    "Required policy outcome": "Flag record",
+    "execution": {
+      "type": "combination",
+      "fields": [
+        ["customer_name", "full_name", "first_name", "last_name"],
+        ["address", "home_address", "postal_address", "postcode", "postal_code"]
+      ]
+    }
+  },
+  {
+    "Rule ID": "CPII-03",
+    "Combination rule": "Full name + phone number",
+    "Required policy outcome": "Flag record",
+    "execution": {
+      "type": "combination",
+      "fields": [
+        ["customer_name", "full_name", "first_name", "last_name"],
+        ["phone", "phone_number", "mobile", "telephone"]
+      ]
+    }
+  },
+  {
+    "Rule ID": "CPII-04",
+    "Combination rule": "Full name + personal email address",
+    "Required policy outcome": "Flag record",
+    "execution": {
+      "type": "combination",
+      "fields": [
+        ["customer_name", "full_name", "first_name", "last_name"],
+        ["email", "personal_email", "contact_email"]
+      ]
+    }
+  },
+  {
+    "Rule ID": "CPII-05",
+    "Combination rule": "Date of birth + postcode + gender",
+    "Required policy outcome": "Flag record",
+    "execution": {
+      "type": "combination",
+      "fields": [
+        ["dob", "date_of_birth", "birth_date"],
+        ["postcode", "postal_code", "zip_code"],
+        ["gender", "sex"]
+      ]
+    }
+  },
+  {
+    "Rule ID": "CPII-06",
+    "Combination rule": "Employee ID + department + role where linkable to a person",
+    "Required policy outcome": "Flag record",
+    "execution": {
+      "type": "combination",
+      "fields": [
+        ["employee_id", "employee_number"],
+        ["department"],
+        ["job_role", "role"]
+      ]
+    }
+  },
+  {
+    "Rule ID": "CPII-07",
+    "Combination rule": "Customer ID + account event details where the customer can be re-identified",
+    "Required policy outcome": "Flag record",
+    "execution": {
+      "type": "combination",
+      "fields": [
+        ["customer_id", "customer_number"],
+        ["account_event", "account_event_details", "transaction", "transaction_details"]
+      ]
+    }
+  },
+  {
+    "Rule ID": "CPII-08",
+    "Combination rule": "Free-text comments containing personal identifiers",
+    "Required policy outcome": "Flag record",
+    "execution": {
+      "type": "text",
+      "fields": [
+        ["feedback", "comments", "comment", "notes", "description"]
+      ],
+      "patterns": [
+        "[\\w.-]+@[\\w.-]+\\.\\w+",
+        "\\b07\\d{9}\\b",
+        "\\b\\d{10}\\b"
+      ]
+    }
+  }
+],
+    [
+      {
+        "Rule ID": "DP-01",
+        "Policy requirement": "Pre-use scan",
+        "Policy statement": "Training data must be scanned for personal data before it is used for model training, fine-tuning, testing or evaluation."
+      },
+      {
+        "Rule ID": "DP-02",
+        "Policy requirement": "Record-level flagging",
+        "Policy statement": "Each record containing direct, sensitive or combination-based personal data must be flagged."
+      },
+      {
+        "Rule ID": "DP-03",
+        "Policy requirement": "Direct identifier handling",
+        "Policy statement": "Direct identifiers must be removed, masked, tokenised or replaced before the record is approved for training use."
+      },
+      {
+        "Rule ID": "DP-04",
+        "Policy requirement": "Sensitive data handling",
+        "Policy statement": "Sensitive personal data must be blocked from training data unless a documented approval and control justification exists."
+      },
+      {
+        "Rule ID": "DP-05",
+        "Policy requirement": "Combination rule handling",
+        "Policy statement": "Records matching combination rules must be reviewed and remediated before use."
+      },
+      {
+        "Rule ID": "DP-06",
+        "Policy requirement": "Free-text scanning",
+        "Policy statement": "Free-text fields such as comments, notes, feedback and descriptions must be scanned for personal data patterns."
+      },
+      {
+        "Rule ID": "DP-07",
+        "Policy requirement": "Remediation evidence",
+        "Policy statement": "Every remediated record must retain evidence of the remediation method applied."
+      },
+      {
+        "Rule ID": "DP-08",
+        "Policy requirement": "Approved dataset output",
+        "Policy statement": "Only records with no unresolved personal data findings may be included in the approved training dataset."
+      },
+      {
+        "Rule ID": "DP-09",
+        "Policy requirement": "Exception handling",
+        "Policy statement": "Exceptions must be documented, risk-assessed, time-bound and approved by the Data Protection Office or delegated authority."
+      },
+      {
+        "Rule ID": "DP-10",
+        "Policy requirement": "Audit trail",
+        "Policy statement": "The scan result, triggered rule, decision, remediation status and approver must be retained for audit purposes."
+      }
+    ],
+    [
+      {
+        "Decision": "PASS",
+        "Meaning": "No personal data or suspected personal data has been detected.",
+        "Required action": "Record may be included in the approved training dataset."
+      },
+      {
+        "Decision": "FLAG",
+        "Meaning": "Direct or combination-based personal data has been detected.",
+        "Required action": "Record must be remediated before training use."
+      },
+      {
+        "Decision": "BLOCK",
+        "Meaning": "Sensitive personal data or high-risk identifier has been detected.",
+        "Required action": "Record must be excluded unless approved exception exists."
+      },
+      {
+        "Decision": "EXCEPTION APPROVED",
+        "Meaning": "A documented approval allows controlled use of the record.",
+        "Required action": "Use only under the approved conditions and retain audit evidence."
+      }
+    ],
+    [
+      {
+        "Remediation method": "Removal",
+        "Policy expectation": "Delete the personal data field or remove the record where the field is not required."
+      },
+      {
+        "Remediation method": "Masking",
+        "Policy expectation": "Replace part of the value while preserving limited analytical utility, where appropriate."
+      },
+      {
+        "Remediation method": "Tokenisation",
+        "Policy expectation": "Replace the identifier with a non-identifying token."
+      },
+      {
+        "Remediation method": "Generalisation",
+        "Policy expectation": "Reduce precision, such as replacing exact date of birth with age band."
+      },
+      {
+        "Remediation method": "Anonymisation",
+        "Policy expectation": "Transform data so individuals are no longer reasonably identifiable."
+      }
+    ],
+    [
+      {
+        "Evidence item": "Dataset name",
+        "Requirement": "Name and version of the dataset assessed."
+      },
+      {
+        "Evidence item": "Scan date",
+        "Requirement": "Date when the dataset was scanned."
+      },
+      {
+        "Evidence item": "Triggered rule IDs",
+        "Requirement": "List of policy rules triggered by each flagged record."
+      },
+      {
+        "Evidence item": "Decision",
+        "Requirement": "PASS, FLAG, BLOCK or EXCEPTION APPROVED."
+      },
+      {
+        "Evidence item": "Remediation status",
+        "Requirement": "Not required, pending, completed or exception approved."
+      },
+      {
+        "Evidence item": "Reviewer or approver",
+        "Requirement": "Named reviewer or approval reference where required."
+      }
+    ],
+    {
+      "non-compliance": "Datasets with unresolved personal data findings must not be used for AI training, fine-tuning, testing or evaluation.",
+      "consequences": [
+        "suspension of dataset use",
+        "removal of system access",
+        "escalation to the data owner",
+        "supplier remediation",
+        "other action determined by the organisation"
+      ]
+    },
+    {
+      "policy_review_frequency": "at least annually or when there is a material change to privacy, AI governance, data use, model development or regulatory requirements"
+    },
+    {
+      "Version": "1.0",
+      "Date": "24 July 2026",
+      "Summary of change": "Initial student version for AI training data PII policy-as-code exercise.",
+      "Owner": "Data Protection Office"
+    },
+    {}
+  ]
+}

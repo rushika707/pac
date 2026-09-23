@@ -1,0 +1,29 @@
+cat > .gitignore <<'EOF'
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Secrets
+.env
+*.key
+*.pem
+
+# Confidential/input policy documents
+input/
+*.pdf
+
+# Generated/runtime data
+generated_data/
+data/
+opa/opa_validation_results.xlsx
+policy-dashboard/public/policy_results.xlsx
+opa/_opa_input.json
+
+# Frontend dependencies
+policy-dashboard/node_modules/
+
+# Logs
+*.log
+EOF
