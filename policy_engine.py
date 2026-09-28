@@ -1,13 +1,19 @@
 import re
+import argparse
 from pathlib import Path
-
+from database import get_connection, init_db
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment
-
+from policy.policy_mapper import (
+    semantic_concept,
+    dataset_columns_for_concept,
+)
 from policy.policy_loader import load_policy
-
-
+import json
+from datetime import datetime
+from database import get_connection, init_db
+from policy.policy_mapper import map_policy
 # ============================================================
 # PATHS
 # ============================================================
@@ -16,7 +22,17 @@ BASE = Path(__file__).resolve().parent
 
 INPUT = BASE / "generated_data" / "synthetic_data.xlsx"
 OUTPUT = BASE / "policy-dashboard" / "public" / "policy_results.xlsx"
-POLICY_FILE = BASE / "policy" / "policy.json"
+DEFAULT_POLICY_FILE = BASE / "policy" / "policy.json"
+
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "--policy",
+    type=Path,
+    default=DEFAULT_POLICY_FILE,
+)
+args = parser.parse_args()
+
+POLICY_FILE = args.policy
 
 
 # ============================================================
@@ -227,56 +243,34 @@ def build_dataset_columns(row):
 
 def resolve_concept_columns(concept, row):
     """
-    Resolve a policy concept to actual dataset columns.
+    Resolve any policy concept to actual dataset columns
+    through semantic meaning.
     """
 
-    concept = normalize_text(concept)
+    concept = str(concept).strip()
 
-    dataset_columns = {
-        normalize_column_name(column): column
-        for column in row.index
-    }
+    # First map policy wording → semantic concept
+    semantic = semantic_concept(concept)
 
-    candidates = []
+    if semantic:
+        candidates = dataset_columns_for_concept(semantic)
 
-    # --------------------------------------------------------
-    # Direct dataset column
-    # --------------------------------------------------------
-
-    if concept in dataset_columns:
-        candidates.append(
-            dataset_columns[concept]
-        )
-
-    # --------------------------------------------------------
-    # Search every semantic alias group
-    # --------------------------------------------------------
-
-    for canonical, aliases in CONCEPT_ALIASES.items():
-
-        vocabulary = [
-            canonical,
-            *aliases,
+        # Keep only columns that actually exist
+        return [
+            column
+            for column in candidates
+            if column in row.index
         ]
 
-        normalized_vocabulary = {
-            normalize_text(item)
-            for item in vocabulary
-        }
+    # Unknown concept:
+    # allow direct dataset-column matching
+    normalized = normalize_column_name(concept)
 
-        if concept not in normalized_vocabulary:
-            continue
+    for column in row.index:
+        if normalize_column_name(column) == normalized:
+            return [column]
 
-        for alias in normalized_vocabulary:
-
-            if alias in dataset_columns:
-                candidates.append(
-                    dataset_columns[alias]
-                )
-
-    return list(
-        dict.fromkeys(candidates)
-    )
+    return []
 
 
 # ============================================================
@@ -395,7 +389,22 @@ NORMALIZED_RULES = {
     rule_id: normalize_rule(rule_id, rule)
     for rule_id, rule in RULES.items()
 }
+def load_policy_for_evaluation(policy_file):
+    global policy
+    global RULES
+    global NORMALIZED_RULES
+    global DECISIONS
 
+    policy = load_policy(Path(policy_file))
+
+    RULES = extract_rules(policy)
+
+    NORMALIZED_RULES = {
+        rule_id: normalize_rule(rule_id, rule)
+        for rule_id, rule in RULES.items()
+    }
+
+    DECISIONS = extract_decisions(policy)
 
 # ============================================================
 # VALUE CHECK
@@ -567,7 +576,7 @@ def split_combination_description(description):
         for part in parts
         if part.strip()
     ]
-def concept_present(row, concept):
+def concept_present(row, concept, rule_mapping=None):
 
     alternatives = re.split(
         r"\s+\bor\b\s+",
@@ -582,10 +591,21 @@ def concept_present(row, concept):
         if not alternative:
             continue
 
-        columns = resolve_concept_columns(
-            alternative,
-            row,
-        )
+        # Use mapper output first
+        if rule_mapping:
+            semantic = semantic_concept(alternative)
+
+            columns = (
+                rule_mapping
+                .get("dataset_columns", {})
+                .get(semantic, [])
+            )
+
+        else:
+            columns = resolve_concept_columns(
+                alternative,
+                row,
+            )
 
         if any(
             has_value(row, column)
@@ -594,7 +614,11 @@ def concept_present(row, concept):
             return True
 
     return False
-def evaluate_description_combination(row, description):
+def evaluate_description_combination(
+    row,
+    description,
+    rule_mapping=None,
+):
 
     concepts = split_combination_description(
         description
@@ -603,10 +627,13 @@ def evaluate_description_combination(row, description):
     if not concepts:
         return False
 
-    # Every concept must be present.
     for concept in concepts:
 
-        if not concept_present(row, concept):
+        if not concept_present(
+            row,
+            concept,
+            rule_mapping,
+        ):
             return False
 
     return True
@@ -719,7 +746,11 @@ def evaluate_text_rule(row, rule):
 # GENERIC RULE EVALUATION
 # ============================================================
 
-def evaluate_rule(row, rule):
+def evaluate_rule(
+    row,
+    rule,
+    rule_mapping=None,
+):
 
     # --------------------------------------------------------
     # Policy-defined execution
@@ -742,6 +773,7 @@ def evaluate_rule(row, rule):
         return evaluate_description_combination(
             row,
             rule.get("description", ""),
+            rule_mapping,
         )
 
     # --------------------------------------------------------
@@ -806,145 +838,445 @@ def extract_outcome(outcome_text):
 
     return None
 
+def load_policy_for_evaluation(policy_file):
+    global policy
+    global RULES
+    global NORMALIZED_RULES
+    global DECISIONS
 
+    policy = load_policy(Path(policy_file))
+
+    RULES = extract_rules(policy)
+    NORMALIZED_RULES = {rule_id: normalize_rule(rule_id, rule) for rule_id, rule in RULES.items()}
+    DECISIONS = extract_decisions(policy)
+
+    print(f"Loaded executable rules: {len(RULES)}")
 # ============================================================
 # RECORD EVALUATION
 # ============================================================
+def check_record(row, mapped_policy=None):
 
-def check_record(row):
+    mapped_rules = {}
 
-    triggered = []
+    def collect(value):
+        if isinstance(value, dict):
+
+            rule_id = (
+                value.get("rule_id")
+                or value.get("Rule ID")
+                or value.get("ID")
+            )
+
+            if rule_id and "_mapping" in value:
+                mapped_rules[str(rule_id)] = value["_mapping"]
+
+            for child in value.values():
+                collect(child)
+
+        elif isinstance(value, list):
+            for child in value:
+                collect(child)
+
+    if mapped_policy:
+        collect(mapped_policy)
+
+    triggered_rules = []
+    triggered_outcomes = []
 
     # --------------------------------------------------------
-    # Evaluate all executable rules
+    # Evaluate every executable rule
     # --------------------------------------------------------
 
     for rule_id, rule in NORMALIZED_RULES.items():
 
-        if rule.get("type") == "requirement":
-            continue
-
-        if evaluate_rule(
-            row,
-            rule,
-        ):
-            triggered.append(rule_id)
-
-    # --------------------------------------------------------
-    # No triggered rules
-    # --------------------------------------------------------
-
-    if not triggered:
-
-        return [
-            "PASS",
-            "",
-            "No policy rules triggered",
-            "No action required",
-        ]
-
-    # --------------------------------------------------------
-    # Collect outcomes
-    # --------------------------------------------------------
-
-    outcomes = []
-
-    for rule_id in triggered:
-
-        outcome = extract_outcome(
-            NORMALIZED_RULES[
-                rule_id
-            ].get("outcome")
+        rule_mapping = mapped_rules.get(
+            str(rule_id),
+            {}
         )
 
-        if outcome:
-            outcomes.append(outcome)
+        semantic_columns = rule_mapping.get(
+            "dataset_columns",
+            {}
+        )
+
+        # Keep normal rule evaluation.
+        triggered = evaluate_rule(
+            row,
+            rule,
+            rule_mapping,
+        )
+
+        if triggered:
+
+            triggered_rules.append(
+                str(rule_id)
+            )
+
+            outcome = extract_outcome(
+                rule.get("outcome", "")
+            )
+
+            if outcome:
+                triggered_outcomes.append(
+                    outcome
+                )
 
     # --------------------------------------------------------
-    # Overall outcome
+    # Determine final outcome
     # --------------------------------------------------------
 
-    if "BLOCK" in outcomes:
-        overall_outcome = "BLOCK"
+    if "BLOCK" in triggered_outcomes:
+        outcome = "BLOCK"
 
-    elif "FLAG" in outcomes:
-        overall_outcome = "FLAG"
+    elif "FLAG" in triggered_outcomes:
+        outcome = "FLAG"
 
-    elif "EXCEPTION APPROVED" in outcomes:
-        overall_outcome = "EXCEPTION APPROVED"
+    elif "EXCEPTION APPROVED" in triggered_outcomes:
+        outcome = "EXCEPTION APPROVED"
 
     else:
-        overall_outcome = "FLAG"
+        outcome = "PASS"
 
     # --------------------------------------------------------
-    # Reasons
+    # Reason
     # --------------------------------------------------------
 
-    reasons = []
-
-    for rule_id in triggered:
-
-        description = NORMALIZED_RULES[
-            rule_id
-        ].get("description", "")
-
-        if description:
-            reasons.append(
-                f"{rule_id}: {description}"
-            )
-        else:
-            reasons.append(rule_id)
-
-    reason = "; ".join(
-        dict.fromkeys(reasons)
-    )
+    if triggered_rules:
+        reason = (
+            "Triggered rules: "
+            + ", ".join(triggered_rules)
+        )
+    else:
+        reason = "No policy rules triggered"
 
     # --------------------------------------------------------
     # Remediation
     # --------------------------------------------------------
 
-    remediation = []
+    remediation = ""
 
-    for rule_id in triggered:
-
-        raw_rule = NORMALIZED_RULES[
-            rule_id
-        ].get("raw", {})
-
-        value = (
-            raw_rule.get("Remediation")
-            or raw_rule.get("remediation")
-            or raw_rule.get("Policy expectation")
-            or raw_rule.get("Required action")
+    if outcome == "BLOCK":
+        remediation = (
+            "Remove the restricted personal data "
+            "or obtain an approved exception."
         )
 
-        if value:
-            remediation.append(
-                str(value)
-            )
+    elif outcome == "FLAG":
+        remediation = (
+            "Review the record for personal data "
+            "and confirm whether its use is permitted."
+        )
 
-    remediation = "; ".join(
-        dict.fromkeys(remediation)
+    # --------------------------------------------------------
+    # Return
+    # --------------------------------------------------------
+
+    return {
+        "expected_outcome": outcome,
+        "expected_rule_triggers": ";".join(
+            triggered_rules
+        ),
+        "expected_reason": reason,
+        "suggested_remediation": remediation,
+    }
+# ============================================================
+# DATABASE STORAGE
+# ============================================================
+def save_evaluations_to_database(
+    df,
+    execution_id=None,
+    start_record=None,
+    end_record=None
+):
+    init_db()
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    policy_metadata = policy["policies"][0].get(
+        "policy_metadata", {}
     )
 
-    if not remediation:
-        remediation = (
-            "Review and remediate according to policy."
+    policy_id = (
+        policy_metadata.get("policy_id")
+        or policy_metadata.get("Policy ID")
+        or policy_metadata.get("id")
+        or "POLICY-001"
+    )
+
+    policy_name = (
+        policy_metadata.get("policy_name")
+        or policy_metadata.get("Policy Name")
+        or policy_metadata.get("name")
+        or "Policy"
+    )
+
+    version = (
+        policy_metadata.get("version")
+        or policy_metadata.get("Version")
+        or ""
+    )
+
+    # --------------------------------------------------------
+    # Create policy record only if this execution does not
+    # already have one
+    # --------------------------------------------------------
+
+    policy_row = cursor.execute(
+        """
+        SELECT id
+        FROM policies
+        WHERE policy_id = ?
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (policy_id,)
+    ).fetchone()
+
+    if policy_row:
+        db_policy_id = policy_row["id"]
+    else:
+        cursor.execute(
+            """
+            INSERT INTO policies
+            (policy_id, policy_name, version)
+            VALUES (?, ?, ?)
+            """,
+            (
+                policy_id,
+                policy_name,
+                version,
+            ),
         )
 
-    return [
-        overall_outcome,
-        "; ".join(triggered),
-        reason,
-        remediation,
+        db_policy_id = cursor.lastrowid
+
+        # Store rules
+        for rule_id, rule in NORMALIZED_RULES.items():
+            cursor.execute(
+                """
+                INSERT INTO policy_rules
+                (policy_id, rule_id, description, outcome)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    db_policy_id,
+                    rule_id,
+                    rule.get("description", ""),
+                    rule.get("outcome", ""),
+                ),
+            )
+
+    # --------------------------------------------------------
+    # Create execution only when one was not supplied
+    # --------------------------------------------------------
+
+    if execution_id is None:
+
+        batch_size = len(df)
+        total_records = len(df)
+
+        total_batches = 1
+
+        started_at = datetime.now().isoformat()
+
+        cursor.execute(
+            """
+            INSERT INTO executions
+            (
+                policy_id,
+                total_records,
+                batch_size,
+                total_batches,
+                start_record,
+                end_record,
+                started_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                db_policy_id,
+                total_records,
+                batch_size,
+                total_batches,
+                start_record,
+                end_record,
+                started_at,
+            ),
+        )
+
+        execution_id = cursor.lastrowid
+
+    else:
+
+        # Make sure supplied execution exists
+        execution_row = cursor.execute(
+            """
+            SELECT id
+            FROM executions
+            WHERE id = ?
+            """,
+            (execution_id,)
+        ).fetchone()
+
+        if execution_row is None:
+            conn.close()
+            raise ValueError(
+                f"Execution {execution_id} does not exist"
+            )
+
+    # --------------------------------------------------------
+    # Store evaluations
+    # --------------------------------------------------------
+
+    for _, row in df.iterrows():
+
+        input_data = {}
+
+        for column in df.columns:
+
+            if column in {
+                "expected_outcome",
+                "expected_rule_triggers",
+                "expected_reason",
+                "suggested_remediation",
+            }:
+                continue
+
+            value = row.get(column, "")
+
+            if pd.isna(value):
+                value = ""
+
+            input_data[column] = str(value)
+
+        cursor.execute(
+            """
+            INSERT INTO evaluations
+            (
+                policy_id,
+                execution_id,
+                record_id,
+                decision,
+                reason,
+                remediation,
+                input_data
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                db_policy_id,
+                execution_id,
+                str(row.get("record_id", "")),
+                str(row.get("expected_outcome", "")),
+                str(row.get("expected_reason", "")),
+                str(row.get("suggested_remediation", "")),
+                json.dumps(input_data),
+            ),
+        )
+
+        evaluation_id = cursor.lastrowid
+
+        rules = str(
+            row.get("expected_rule_triggers", "")
+        ).split(";")
+
+        for rule_id in rules:
+
+            rule_id = rule_id.strip()
+
+            if not rule_id:
+                continue
+
+            cursor.execute(
+                """
+                INSERT INTO triggered_rules
+                (evaluation_id, rule_id)
+                VALUES (?, ?)
+                """,
+                (
+                    evaluation_id,
+                    rule_id,
+                ),
+            )
+
+    # --------------------------------------------------------
+    # Complete execution
+    # --------------------------------------------------------
+
+    completed_at = datetime.now().isoformat()
+
+    cursor.execute(
+        """
+        UPDATE executions
+        SET
+            completed_at = ?,
+            policy_id = ?
+        WHERE id = ?
+        """,
+        (
+            completed_at,
+            db_policy_id,
+            execution_id,
+        ),
+    )
+
+    conn.commit()
+    conn.close()
+
+    print(
+        f"Database updated: execution #{execution_id}, "
+        f"{len(df)} records"
+    )
+
+    return execution_id
+def evaluate_dataframe(df, mapped_policy=None):
+
+    rows = []
+
+    for _, row in df.iterrows():
+
+        result = check_record(
+            row,
+            mapped_policy=mapped_policy
+        )
+
+        rows.append({
+            "expected_outcome": result.get("expected_outcome"),
+            "expected_rule_triggers": result.get(
+                "expected_rule_triggers", []
+            ),
+            "expected_reason": result.get(
+                "expected_reason", ""
+            ),
+            "suggested_remediation": result.get(
+                "suggested_remediation", ""
+            ),
+        })
+
+    results = pd.DataFrame(rows, index=df.index)
+
+    df = df.copy()
+
+    df["expected_outcome"] = results["expected_outcome"]
+    df["expected_rule_triggers"] = results[
+        "expected_rule_triggers"
+    ]
+    df["expected_reason"] = results[
+        "expected_reason"
+    ]
+    df["suggested_remediation"] = results[
+        "suggested_remediation"
     ]
 
-
+    return df
 # ============================================================
 # MAIN
 # ============================================================
 
 def main():
+
+    load_policy_for_evaluation(POLICY_FILE)
 
     print(f"Input dataset: {INPUT}")
     print(f"Policy file: {POLICY_FILE}")
@@ -959,6 +1291,10 @@ def main():
     # --------------------------------------------------------
 
     df = pd.read_excel(INPUT)
+    mapped_policy = map_policy(
+        policy,
+        df.columns.tolist()
+    )
 
     print(f"Records loaded: {len(df)}")
     print(f"Columns: {list(df.columns)}")
@@ -967,32 +1303,10 @@ def main():
     # Evaluate
     # --------------------------------------------------------
 
-    results = df.apply(
-        check_record,
-        axis=1,
-        result_type="expand",
+    df = evaluate_dataframe(
+        df,
+        mapped_policy
     )
-
-    results.columns = [
-        "expected_outcome",
-        "expected_rule_triggers",
-        "expected_reason",
-        "suggested_remediation",
-    ]
-
-    # --------------------------------------------------------
-    # Preserve original dataset columns
-    # --------------------------------------------------------
-
-    df[
-        [
-            "expected_outcome",
-            "expected_rule_triggers",
-            "expected_reason",
-            "suggested_remediation",
-        ]
-    ] = results
-
     # --------------------------------------------------------
     # Save
     # --------------------------------------------------------
@@ -1049,7 +1363,11 @@ def main():
         )
 
     workbook.save(OUTPUT)
+    # --------------------------------------------------------
+    # Save to database
+    # --------------------------------------------------------
 
+    save_evaluations_to_database(df)
     # --------------------------------------------------------
     # Summary
     # --------------------------------------------------------

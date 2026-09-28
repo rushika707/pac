@@ -1,7 +1,18 @@
 import json
 import re
+import sys
+import argparse
 from pathlib import Path
 
+sys.path.insert(
+    0,
+    str(Path(__file__).resolve().parent.parent)
+)
+from pathlib import Path
+from policy.policy_mapper import (
+    semantic_concept,
+    dataset_columns_for_concept,
+)
 
 BASE = Path(__file__).resolve().parent.parent
 POLICY_FILE = BASE / "policy" / "policy.json"
@@ -193,141 +204,23 @@ CONCEPT_ALIASES = {
     ],
 }
 
-def resolve_concept_fields(concept):
+def resolve_concept_fields(concept, rule_mapping=None):
     """
-    Resolve policy concepts/examples to actual dataset columns.
+    Resolve policy wording using the policy mapper output.
     """
 
-    concept = normalize_text(concept)
+    concept = str(concept).strip()
 
-    FIELD_MAP = {
-        # Direct PII
-        "full name": ["customer_name"],
-        "customer name": ["customer_name"],
-        "first name": ["customer_name"],
-        "last name": ["customer_name"],
-        "name": ["customer_name"],
+    semantic = semantic_concept(concept)
 
-        "date of birth": ["dob"],
-        "dob": ["dob"],
+    if rule_mapping and semantic:
+        return rule_mapping.get(
+            "dataset_columns",
+            {}
+        ).get(semantic, [])
 
-        "personal email address": ["email"],
-        "personal email": ["email"],
-        "email address": ["email"],
-        "email": ["email"],
-        "contact email": ["email"],
-
-        "phone number": ["phone"],
-        "phone": ["phone"],
-        "mobile": ["phone"],
-        "mobile number": ["phone"],
-        "telephone": ["phone"],
-        "telephone number": ["phone"],
-
-        "postal address": ["address"],
-        "home address": ["address"],
-        "address": ["address"],
-        "street": ["address"],
-        "street address": ["address"],
-
-        "postcode": [],
-        "postal code": [],
-        "zip": [],
-        "zip code": [],
-
-        "ni number": ["ni_number"],
-        "nino": ["ni_number"],
-
-        "passport number": ["passport_number"],
-
-        "driving licence number": [],
-
-        "bank account": ["bank_account"],
-        "sort code": [],
-        "credit card number": ["credit_card_number"],
-
-        "ip address": ["ip_address"],
-        "device id": [],
-        "cookie id": [],
-        "user id": ["customer_id"],
-
-        # Sensitive PII
-        "medical condition": ["medical_condition"],
-        "diagnosis": ["medical_condition"],
-        "treatment": ["medical_condition"],
-        "disability information": ["medical_condition"],
-
-        "ethnicity": ["ethnicity"],
-        "race": ["ethnicity"],
-        "racial origin": ["ethnicity"],
-
-        "religion": ["religion"],
-        "belief": ["religion"],
-
-        "political view": ["political_view"],
-        "party preference": ["political_view"],
-
-        "trade union": [],
-        "union member": [],
-
-        "faceprint": [],
-        "fingerprint": [],
-        "iris scan": [],
-        "dna profile": [],
-
-        # Combination concepts
-        "gender": ["gender"],
-        "sex": ["gender"],
-
-        "employee id": ["employee_id"],
-        "employee identifier": ["employee_id"],
-        "employee number": ["employee_id"],
-
-        "department": ["department"],
-        "business unit": ["department"],
-        "team": ["department"],
-
-        "role": ["job_role"],
-        "job role": ["job_role"],
-        "job title": ["job_role"],
-        "position": ["job_role"],
-
-        "customer id": ["customer_id"],
-        "customer identifier": ["customer_id"],
-        "client id": ["customer_id"],
-        "client identifier": ["customer_id"],
-
-        # Account-event fields are absent from current dataset
-        "account event details": [],
-        "account event": [],
-        "account activity": [],
-        "account details": [],
-        "transaction details": [],
-
-        # Free text
-        "free text": ["feedback"],
-        "comments": ["feedback"],
-        "comment": ["feedback"],
-        "notes": ["feedback"],
-        "feedback": ["feedback"],
-        "description": ["feedback"],
-        "text": ["feedback"],
-    }
-
-    if concept in FIELD_MAP:
-        return FIELD_MAP[concept]
-
-    for canonical, aliases in CONCEPT_ALIASES.items():
-        vocabulary = {
-            normalize_text(canonical),
-            *(normalize_text(alias) for alias in aliases),
-        }
-
-        if concept in vocabulary:
-            return FIELD_MAP.get(
-                normalize_text(canonical),
-                []
-            )
+    if semantic:
+        return dataset_columns_for_concept(semantic)
 
     return []
 
@@ -385,26 +278,26 @@ def generate_helpers(lines):
 # FIELD CONDITION
 # ============================================================
 
-def generate_field_condition(fields):
+
+def generate_field_condition(fields, rule_mapping=None):
 
     resolved = []
 
     for field in fields:
-
         if isinstance(field, str):
             resolved.extend(
-                resolve_concept_fields(field)
+                resolve_concept_fields(
+                    field,
+                    rule_mapping
+                )
             )
 
-    resolved = sorted(
-        set(resolved)
-    )
+    resolved = sorted(set(resolved))
 
     if not resolved:
         return "false"
 
     return f"has_any({json.dumps(resolved)})"
-
 
 # ============================================================
 # COMBINATION DESCRIPTION
@@ -434,8 +327,10 @@ def split_combination_description(description):
         if part.strip()
     ]
 
-
-def generate_combination_condition(description):
+def generate_combination_condition(
+    description,
+    rule_mapping=None,
+):
 
     concepts = split_combination_description(
         description
@@ -448,10 +343,6 @@ def generate_combination_condition(description):
 
     for concept in concepts:
 
-        # Support:
-        #
-        # postal address or postcode
-        #
         alternatives = re.split(
             r"\s+\bor\b\s+",
             concept,
@@ -469,14 +360,14 @@ def generate_combination_condition(description):
 
             group.extend(
                 resolve_concept_fields(
-                    alternative
+                    alternative,
+                    rule_mapping
                 )
             )
 
-        group = sorted(
-            set(group)
-        )
+        group = sorted(set(group))
 
+        # A required concept has no dataset representation
         if not group:
             return "false"
 
@@ -493,7 +384,7 @@ def generate_combination_condition(description):
 # TEXT CONDITION
 # ============================================================
 
-def generate_text_condition(rule):
+def generate_text_condition(rule, rule_mapping=None):
 
     execution = rule.get(
         "execution",
@@ -529,12 +420,9 @@ def generate_text_condition(rule):
     if not resolved_fields:
         return "false"
 
-    return (
-        "text_matches("
-        + json.dumps(resolved_fields)
-        + ", "
-        + json.dumps(patterns)
-        + ")"
+    return generate_text_condition(
+        rule,
+        rule_mapping
     )
 
 
@@ -542,7 +430,7 @@ def generate_text_condition(rule):
 # RULE CONDITION
 # ============================================================
 
-def generate_condition(rule):
+def generate_condition(rule, rule_mapping=None):
 
     execution = rule.get(
         "execution",
@@ -560,10 +448,8 @@ def generate_condition(rule):
     if execution_type == "field":
 
         return generate_field_condition(
-            execution.get(
-                "fields",
-                []
-            )
+            execution.get("fields", []),
+            rule_mapping
         )
 
     if execution_type == "combination":
@@ -585,7 +471,10 @@ def generate_condition(rule):
 
                 for field in group:
                     resolved_group.extend(
-                        resolve_concept_fields(field)
+                        resolve_concept_fields(
+                            field,
+                            rule_mapping
+                        )
                     )
 
                 groups.append(
@@ -602,7 +491,8 @@ def generate_condition(rule):
         # Fall back to policy description.
 
         return generate_combination_condition(
-            get_description(rule)
+            get_description(rule),
+            rule_mapping
         )
 
     if execution_type == "text":
@@ -676,13 +566,44 @@ def generate_condition(rule):
     # --------------------------------------------------------
 
     return "false"
+def extract_rule_mapping(mapped_policy, rule_id):
+    """
+    Retrieve mapper output for a specific rule.
+    """
 
+    def walk(value):
+        if isinstance(value, dict):
+
+            current_id = (
+                value.get("rule_id")
+                or value.get("Rule ID")
+                or value.get("ID")
+            )
+
+            if str(current_id) == str(rule_id):
+                return value.get("_mapping", {})
+
+            for child in value.values():
+                result = walk(child)
+                if result is not None:
+                    return result
+
+        elif isinstance(value, list):
+
+            for child in value:
+                result = walk(child)
+                if result is not None:
+                    return result
+
+        return None
+
+    return walk(mapped_policy) or {}
 
 # ============================================================
 # GENERATE REGO
 # ============================================================
 
-def generate(policy):
+def generate(policy, mapped_policy=None):
 
     rules = extract_rules(policy)
 
@@ -712,8 +633,11 @@ def generate(policy):
             rule_id,
         )
 
+        rule_mapping = extract_rule_mapping(mapped_policy, rule_id)
+
         condition = generate_condition(
-            rule
+            rule,
+            rule_mapping
         )
 
         outcome = extract_outcome(
@@ -857,27 +781,48 @@ def generate(policy):
 
 if __name__ == "__main__":
 
-    policy = load_policy()
+    parser = argparse.ArgumentParser()
 
-    rego = generate(
-        policy
+    parser.add_argument(
+        "--policy",
+        type=Path,
+        default=POLICY_FILE,
     )
 
-    OUTPUT_FILE.parent.mkdir(
+    parser.add_argument(
+        "--mapped",
+        type=Path,
+        default=BASE / "policy" / "mapped_policy.json",
+    )
+
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=OUTPUT_FILE,
+    )
+
+    args = parser.parse_args()
+
+    with open(args.policy, "r", encoding="utf-8") as f:
+        policy = json.load(f)
+
+    mapped_policy = None
+
+    if args.mapped.exists():
+        with open(args.mapped, "r", encoding="utf-8") as f:
+            mapped_policy = json.load(f)
+
+    generated = generate(
+        policy,
+        mapped_policy,
+    )
+
+    args.output.parent.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    with open(
-        OUTPUT_FILE,
-        "w",
-        encoding="utf-8",
-    ) as f:
+    with open(args.output, "w", encoding="utf-8") as f:
+        f.write(generated)
 
-        f.write(
-            rego
-        )
-
-    print(
-        f"Generated: {OUTPUT_FILE}"
-    )
+    print(f"Generated: {args.output}")

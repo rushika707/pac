@@ -1,0 +1,211 @@
+{
+  "policies": [
+    {
+      "policy_metadata": {},
+      "purpose": "",
+      "scope": "",
+      "definitions": [],
+      "rules": [
+        {
+          "rule_id": "PII-01",
+          "description": "Legal name",
+          "examples": [
+            "legal_name",
+            "given_name",
+            "family_name",
+            "preferred_name"
+          ],
+          "outcome": "Flag record"
+        },
+        {
+          "rule_id": "PII-02",
+          "description": "Private email",
+          "examples": [
+            "private_email",
+            "email",
+            "alternate_email"
+          ],
+          "outcome": "Flag record"
+        },
+        {
+          "rule_id": "PII-03",
+          "description": "Contact number",
+          "examples": [
+            "contact_number",
+            "mobile",
+            "telephone"
+          ],
+          "outcome": "Flag record"
+        },
+        {
+          "rule_id": "PII-04",
+          "description": "Home location",
+          "examples": [
+            "home_address",
+            "apartment",
+            "street",
+            "postal_code"
+          ],
+          "outcome": "Flag record"
+        },
+        {
+          "rule_id": "PII-05",
+          "description": "Taxpayer identification number",
+          "examples": [
+            "tax_id",
+            "taxpayer_number",
+            "tax_reference"
+          ],
+          "outcome": "Block until removed or approved"
+        },
+        {
+          "rule_id": "PII-06",
+          "description": "Travel document number",
+          "examples": [
+            "passport_no",
+            "travel_document",
+            "passport_id"
+          ],
+          "outcome": "Block until removed or approved"
+        },
+        {
+          "rule_id": "PII-07",
+          "description": "Driver credential number",
+          "examples": [
+            "driver_number",
+            "licence_id",
+            "driving_licence_no"
+          ],
+          "outcome": "Block until removed or approved"
+        },
+        {
+          "rule_id": "PII-08",
+          "description": "Payment account identifier",
+          "examples": [
+            "iban",
+            "bank_account",
+            "card_number"
+          ],
+          "outcome": "Block until removed or approved"
+        },
+        {
+          "rule_id": "PII-09",
+          "description": "Linkable digital identifier",
+          "examples": [
+            "ip_address",
+            "device_id",
+            "session_id",
+            "user_id"
+          ],
+          "outcome": "Flag record"
+        },
+        {
+          "rule_id": "SPII-01",
+          "description": "Health status",
+          "examples": [
+            "health_status",
+            "condition",
+            "clinical_note",
+            "treatment"
+          ],
+          "outcome": "Block record"
+        },
+        {
+          "rule_id": "SPII-02",
+          "description": "Ethnic background",
+          "examples": [
+            "ethnicity",
+            "ethnic_origin",
+            "ancestry"
+          ],
+          "outcome": "Block record"
+        },
+        {
+          "rule_id": "SPII-03",
+          "description": "Faith or religion",
+          "examples": [
+            "religious_belief",
+            "faith",
+            "denomination"
+          ],
+          "outcome": "Block record"
+        },
+        {
+          "rule_id": "SPII-04",
+          "description": "Political preference",
+          "examples": [
+            "political_view",
+            "party_preference",
+            "political_affiliation"
+          ],
+          "outcome": "Block record"
+        },
+        {
+          "rule_id": "SPII-05",
+          "description": "Labour organisation membership",
+          "examples": [
+            "union_member",
+            "union_affiliation",
+            "labour_union"
+          ],
+          "outcome": "Block record"
+        },
+        {
+          "rule_id": "SPII-06",
+          "description": "Biometric or DNA data",
+          "examples": [
+            "facial_template",
+            "fingerprint",
+            "retina_scan",
+            "dna_data"
+          ],
+          "outcome": "Block record"
+        },
+        {
+          "rule_id": "CPII-01",
+          "description": "Legal name + date of birth",
+          "outcome": "Flag record"
+        },
+        {
+          "rule_id": "CPII-02",
+          "description": "Legal name + full home location",
+          "outcome": "Flag record"
+        },
+        {
+          "rule_id": "CPII-03",
+          "description": "Legal name + contact number",
+          "outcome": "Flag record"
+        },
+        {
+          "rule_id": "CPII-04",
+          "description": "Legal name + private email",
+          "outcome": "Flag record"
+        },
+        {
+          "rule_id": "CPII-05",
+          "description": "Date of birth + postal code + gender",
+          "outcome": "Flag record"
+        },
+        {
+          "rule_id": "CPII-06",
+          "description": "Worker ID + business unit + position where identifiable",
+          "outcome": "Flag record"
+        },
+        {
+          "rule_id": "CPII-07",
+          "description": "Account reference + purchase history allowing re-identification",
+          "outcome": "Flag record"
+        },
+        {
+          "rule_id": "CPII-08",
+          "description": "Free-form text containing personal identifiers",
+          "outcome": "Flag record / Flag record"
+        }
+      ],
+      "requirements": [],
+      "decisions": [],
+      "remediation": [],
+      "evidence": []
+    }
+  ]
+}

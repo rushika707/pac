@@ -1,224 +1,615 @@
 import { useEffect, useMemo, useState } from "react";
-import * as XLSX from "xlsx";
 import { Pie } from "react-chartjs-2";
-import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
+import {
+  Chart as ChartJS,
+  ArcElement,
+  Tooltip,
+  Legend,
+} from "chart.js";
 import "./App.css";
 
 ChartJS.register(ArcElement, Tooltip, Legend);
 
-const RULES = {
-  "PII-01": "Full name detected",
-  "PII-02": "Personal email detected",
-  "PII-03": "Phone number detected",
-  "PII-04": "Personal address detected",
-  "PII-05": "National Insurance number detected",
-  "PII-06": "Passport number detected",
-  "PII-08": "Credit card number detected",
-  "PII-09": "IP address detected",
-  "SPII-01": "Medical information detected",
-  "SPII-02": "Ethnicity detected",
-  "SPII-03": "Religion detected",
-  "SPII-04": "Political opinion detected",
-  "CPII-01": "Name + date of birth",
-  "CPII-02": "Name + address",
-  "CPII-03": "Name + phone",
-  "CPII-04": "Name + email",
-  "CPII-05": "Date of birth + gender",
-  "CPII-06": "Employee ID + department + role",
-  "CPII-08": "PII detected in feedback"
+const API = "http://127.0.0.1:8001";
+
+
+function DatasetEvaluationPage({ onBack }) {
+  const [dataset, setDataset] = useState(null);
+  const [startRecord, setStartRecord] = useState(1);
+  const [endRecord, setEndRecord] = useState(1000);
+  const [batch, setBatch] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API}/api/dataset/info`)
+      .then((res) => res.json())
+      .then((data) => setDataset(data));
+  }, []);
+
+  const runBatch = async () => {
+  if (!dataset) return;
+
+  if (
+    startRecord < 1 ||
+    endRecord > dataset.total_records ||
+    startRecord > endRecord
+  ) {
+    alert("Invalid record range");
+    return;
+  }
+
+  setLoading(true);
+
+  try {
+    const response = await fetch(
+      `${API}/api/dataset/evaluate?start_record=${startRecord}&end_record=${endRecord}`,
+      {
+        method: "POST",
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok || data.error) {
+      throw new Error(data.error || "Batch evaluation failed");
+    }
+
+    setBatch({
+      executionId: data.execution_id,
+      batchNumber: data.batch_number,
+      startRecord: data.start_record,
+      endRecord: data.end_record,
+      recordsEvaluated: data.records_evaluated,
+    });
+
+  } catch (error) {
+    console.error(error);
+    alert(error.message);
+  } finally {
+    setLoading(false);
+  }
 };
 
-const EXPLANATIONS = {
-  "PII-01": "A full name can directly identify an individual.",
-  "PII-02": "An email address can identify or enable contact with an individual.",
-  "PII-03": "A phone number can directly link data to an individual.",
-  "PII-04": "A postal address can reveal an individual's location.",
-  "PII-05": "A National Insurance number is a highly sensitive personal identifier.",
-  "PII-06": "A passport number is a sensitive government-issued identifier.",
-  "PII-08": "Credit card data exposes sensitive financial information.",
-  "PII-09": "An IP address may be used to identify a user or device.",
+  return (
+    <div className="dataset-page">
 
-  "SPII-01": "Medical information is sensitive personal data requiring strict protection.",
-  "SPII-02": "Ethnicity is classified as sensitive personal information.",
-  "SPII-03": "Religious beliefs are sensitive personal information.",
-  "SPII-04": "Political opinions are sensitive personal information.",
+      <button className="back-button" onClick={onBack}>
+        ← Back to Dashboard
+      </button>
 
-  "CPII-01": "Name and date of birth together increase identification risk.",
-  "CPII-02": "Name and address together can directly identify an individual.",
-  "CPII-03": "Name and phone number enable identification and direct contact.",
-  "CPII-04": "Name and email together strengthen individual identification.",
-  "CPII-05": "Date of birth and gender together increase identification risk.",
-  "CPII-06": "Employee details combined may reveal an individual's identity.",
-  "CPII-08": "Unstructured feedback contains potentially identifiable information."
-};
+      <div className="dataset-header">
+        <h1>DATASET EVALUATION</h1>
+        <p>Select a dataset and choose the records to evaluate.</p>
+      </div>
 
-const REMEDIATIONS = {
-  "PII-01": "Full Name: Redact or tokenise the customer's name.",
-  "PII-02": "Email Address: Mask or replace the email with a token.",
-  "PII-03": "Phone Number: Mask the phone number.",
-  "PII-04": "Postal Address: Remove or generalise the address.",
-  "PII-05": "National Insurance Number: Remove this sensitive identifier.",
-  "PII-06": "Passport Number: Remove this sensitive identifier.",
-  "PII-08": "Credit Card Number: Remove or mask financial data.",
-  "PII-09": "IP Address: Anonymise the IP address.",
+      <section className="dataset-card">
 
-  "SPII-01": "Medical Information: Remove or restrict sensitive health data.",
-  "SPII-02": "Ethnicity: Remove or restrict sensitive personal data.",
-  "SPII-03": "Religion: Remove or restrict sensitive personal data.",
-  "SPII-04": "Political Opinion: Remove or restrict sensitive personal data.",
+        <h3>Dataset</h3>
 
-  "CPII-01": "Name + DOB: Remove the name or generalise the date of birth.",
-  "CPII-02": "Name + Address: Remove the name or generalise the address.",
-  "CPII-03": "Name + Phone: Redact the name and mask the phone number.",
-  "CPII-04": "Name + Email: Redact the name and mask the email.",
-  "CPII-05": "DOB + Gender: Generalise the DOB or remove gender.",
-  "CPII-06": "Employee Details: Tokenise the employee ID and generalise details.",
-  "CPII-08": "Feedback PII: Redact identifiable information from feedback."
-};
-const FILE_PATH = "/policy_results.xlsx";
+        {dataset ? (
+          <div className="dataset-info">
+            <strong>{dataset.filename}</strong>
+            <span>
+              {dataset.total_records.toLocaleString()} records
+            </span>
+          </div>
+        ) : (
+          <p>Loading dataset...</p>
+        )}
+
+        <h3 className="range-title">Record Range</h3>
+
+        <div className="range-grid">
+
+          <div>
+            <label>Start Record</label>
+            <input
+              type="number"
+              min="1"
+              max={dataset?.total_records || 1}
+              value={startRecord}
+              onChange={(e) => setStartRecord(Number(e.target.value))}
+            />
+          </div>
+
+          <div>
+            <label>End Record</label>
+            <input
+              type="number"
+              min="1"
+              max={dataset?.total_records || 1}
+              value={endRecord}
+              onChange={(e) => setEndRecord(Number(e.target.value))}
+            />
+          </div>
+
+        </div>
+
+        <button
+          className="run-batch-button"
+          onClick={runBatch}
+          disabled={loading || !dataset}
+        >
+          {loading ? "Running..." : "Run Batch"}
+        </button>
+
+      </section>
+
+      {batch && (
+        <section className="batch-result-card">
+
+          <div className="batch-title">
+            <span>Batch {batch.batchNumber}</span>
+          </div>
+
+          <h2>
+            Records {batch.startRecord.toLocaleString()} –{" "}
+            {batch.endRecord.toLocaleString()}
+          </h2>
+
+          <p>
+            {batch.recordsEvaluated.toLocaleString()} records selected
+          </p>
+
+        </section>
+      )}
+
+    </div>
+  );
+}
+
+
 
 function App() {
+  const [page, setPage] = useState("dashboard");
+
   const [df, setDf] = useState([]);
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("All");
+  const [filter, setFilter] = useState("PASS");
+
   const [selectedId, setSelectedId] = useState(null);
+  const [selectedDetails, setSelectedDetails] = useState(null);
+
+  const [selectedExecutionId, setSelectedExecutionId] =
+    useState(null);
+
+  const [showHistory, setShowHistory] = useState(false);
+
+  const [executions, setExecutions] = useState([]);
+  const [policyRules, setPolicyRules] = useState([]);
+  const [definitions, setDefinitions] = useState(null);
+
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  /* =========================================================
+     LOAD DATA
+  ========================================================= */
 
   useEffect(() => {
     loadData();
   }, []);
 
-  const loadData = async () => {
+  const loadData = async (executionId = null) => {
     try {
-      const response = await fetch(FILE_PATH);
+      setLoading(true);
+      setError("");
 
-      if (!response.ok) {
-        throw new Error("Could not load policy_results.xlsx");
+      const evaluationsUrl = executionId
+        ? `${API}/api/evaluations?execution_id=${executionId}`
+        : `${API}/api/evaluations`;
+
+      const [
+        evaluationsResponse,
+        executionsResponse,
+        rulesResponse,
+        definitionsResponse,
+      ] = await Promise.all([
+        fetch(evaluationsUrl),
+        fetch(`${API}/api/executions`),
+        fetch(`${API}/api/rules`),
+        fetch(`${API}/api/policy/definitions`),
+      ]);
+
+      if (!evaluationsResponse.ok) {
+        throw new Error(
+          "Could not load evaluations from API"
+        );
       }
 
-      const buffer = await response.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: "array" });
+      if (!executionsResponse.ok) {
+        throw new Error(
+          "Could not load execution history"
+        );
+      }
 
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const data = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+      if (!rulesResponse.ok) {
+        throw new Error(
+          "Could not load policy rules"
+        );
+      }
 
-      setDf(data);
+      if (!definitionsResponse.ok) {
+        throw new Error(
+          "Could not load policy definitions"
+        );
+      }
 
-      if (data.length > 0) {
-        setSelectedId(data[0].record_id);
+      const evaluations =
+        await evaluationsResponse.json();
+
+      const executionsData =
+        await executionsResponse.json();
+
+      const rulesData =
+        await rulesResponse.json();
+
+      const definitionsData =
+        await definitionsResponse.json();
+
+      /*
+       * Keep the original API decision.
+       * expected_outcome is only kept for compatibility
+       * with the existing UI.
+       */
+      const formatted = evaluations.map((row) => ({
+        ...row,
+
+        record_id: row.record_id,
+
+        decision: String(
+          row.decision ?? row.expected_outcome ?? ""
+        )
+          .trim()
+          .toUpperCase(),
+
+        expected_outcome: String(
+          row.decision || ""
+        )
+          .trim()
+          .toUpperCase(),
+
+        expected_rule_triggers:
+          row.triggered_rules || "",
+
+        expected_reason:
+          row.reason || "",
+
+        suggested_remediation:
+          row.remediation || "",
+      }));
+
+      setDf(formatted);
+      setExecutions(executionsData);
+      setPolicyRules(rulesData);
+      setDefinitions(definitionsData);
+
+      const activeExecutionId =
+        executionId ||
+        executionsData[0]?.id ||
+        null;
+
+      setSelectedExecutionId(
+        activeExecutionId
+      );
+
+      if (formatted.length > 0) {
+        setSelectedId(
+          formatted[0].record_id
+        );
+
+        loadSelectedRecord(
+          formatted[0].record_id,
+          activeExecutionId
+        );
+      } else {
+        setSelectedId(null);
+        setSelectedDetails(null);
       }
     } catch (err) {
-      setError(err.message);
+      console.error(err);
+
+      setError(
+        `${err.message}. Make sure the FastAPI backend is running.`
+      );
+    } finally {
+      setLoading(false);
     }
   };
+
+  /* =========================================================
+     SELECTED RECORD
+  ========================================================= */
+
+  const loadSelectedRecord = async (
+    recordId,
+    executionId
+  ) => {
+    try {
+      const response = await fetch(
+        `${API}/api/evaluations/${recordId}?execution_id=${executionId}`
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          "Could not load record details"
+        );
+      }
+
+      const data = await response.json();
+
+      if (!data.error) {
+        setSelectedDetails(data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleSelectRecord = (recordId) => {
+  setSelectedId(recordId);
+  loadSelectedRecord(
+    recordId,
+    selectedExecutionId
+  );
+};
+
+  /* =========================================================
+     CURRENT EXECUTION
+  ========================================================= */
+
+  const currentExecution = useMemo(() => {
+    if (!executions.length) {
+      return null;
+    }
+
+    if (selectedExecutionId !== null) {
+      const selected = executions.find(
+        (execution) =>
+          Number(execution.id) ===
+          Number(selectedExecutionId)
+      );
+
+      if (selected) {
+        return selected;
+      }
+    }
+
+    return executions[0];
+  }, [
+    executions,
+    selectedExecutionId,
+  ]);
+
+  /* =========================================================
+     OUTCOME COUNTS
+     
+     IMPORTANT:
+     These are calculated from the records currently loaded.
+     Therefore historical runs also display their own counts.
+  ========================================================= */
 
   const total = df.length;
 
   const passed = useMemo(
-    () => df.filter((r) => r.expected_outcome === "PASS").length,
+    () =>
+      df.filter(
+        (record) =>
+          String(record.decision)
+            .trim()
+            .toUpperCase() === "PASS"
+      ).length,
     [df]
   );
 
   const flagged = useMemo(
-    () => df.filter((r) => r.expected_outcome === "FLAG").length,
+    () =>
+      df.filter(
+        (record) =>
+          String(record.decision)
+            .trim()
+            .toUpperCase() === "FLAG"
+      ).length,
     [df]
   );
 
   const blocked = useMemo(
-    () => df.filter((r) => r.expected_outcome === "BLOCK").length,
+    () =>
+      df.filter(
+        (record) =>
+          String(record.decision)
+            .trim()
+            .toUpperCase() === "BLOCK"
+      ).length,
     [df]
   );
 
   const passRate = total
     ? ((passed / total) * 100).toFixed(1)
-    : 0;
+    : "0.0";
+
+  /* =========================================================
+     FILTER
+   
+     IMPORTANT:
+     Uses record.decision directly.
+     PASS can NEVER contain FLAG/BLOCK records.
+  ========================================================= */
 
   const filteredData = useMemo(() => {
-    let data = [...df];
+    const status = String(filter).trim().toUpperCase();
 
-    if (filter !== "All") {
-      data = data.filter(
-        (r) => r.expected_outcome === filter
-      );
-    }
+    return df.filter((record) => {
+      const decision = String(
+        record.decision ?? record.expected_outcome ?? ""
+      )
+        .trim()
+        .toUpperCase();
 
-    if (search.trim()) {
-  const q = search.toLowerCase().trim();
+      return decision === status;
+    });
+  }, [df, filter]);
 
-  data = data.filter((row) =>
-    String(row.record_id).includes(q) ||
-    String(row.expected_outcome).toLowerCase().includes(q) ||
-    String(row.expected_rule_triggers || "")
-      .toLowerCase()
-      .includes(q)
-  );
-}
-
-    return data;
-  }, [df, filter, search]);
+  /* =========================================================
+     SELECTED RECORD OBJECT
+  ========================================================= */
 
   const selectedRecord = useMemo(
-    () =>
-      df.find(
-        (record) => String(record.record_id) === String(selectedId)
-      ),
-    [df, selectedId]
-  );
+  () =>
+    filteredData.find(
+      (record) =>
+        String(record.record_id) ===
+        String(selectedId)
+    ),
+  [filteredData, selectedId]
+);
 
-const pieData = {
-  labels: ["PASS", "FLAG", "BLOCK"],
-  datasets: [
-    {
-      data: [passed, flagged, blocked],
-      backgroundColor: ["#22c55e", "#f97316", "#ef4444"],
-      borderWidth: 0,
-    },
-  ],
-};
+  useEffect(() => {
+    if (filteredData.length === 0) {
+      setSelectedId(null);
+      setSelectedDetails(null);
+      return;
+    }
 
-const pieOptions = {
-  responsive: true,
-  maintainAspectRatio: false,
-  plugins: {
-    legend: {
-      position: "bottom",
-      labels: {
-        padding: 20,
+    const stillVisible = filteredData.some(
+      (record) =>
+        String(record.record_id) === String(selectedId)
+    );
+
+    if (!stillVisible) {
+      const firstRecord = filteredData[0];
+      setSelectedId(firstRecord.record_id);
+      loadSelectedRecord(
+  firstRecord.record_id,
+  selectedExecutionId
+);
+    }
+  }, [filter, filteredData]);
+
+  /* =========================================================
+     BATCH PROGRESS
+  ========================================================= */
+
+  const batchProgress = currentExecution
+    ? currentExecution.completed_at
+      ? 100
+      : 0
+    : 0;
+
+  /* =========================================================
+     PIE CHART
+  ========================================================= */
+
+  const pieData = {
+    labels: [
+      "PASS",
+      "FLAG",
+      "BLOCK",
+    ],
+
+    datasets: [
+      {
+        data: [
+          passed,
+          flagged,
+          blocked,
+        ],
+
+        backgroundColor: [
+          "#22c55e",
+          "#f97316",
+          "#ef4444",
+        ],
+
+        borderWidth: 0,
       },
-    },
-    tooltip: {
-      callbacks: {
-        label: function (context) {
-          const total = context.dataset.data.reduce(
-            (sum, value) => sum + value,
-            0
-          );
+    ],
+  };
 
-          const percentage = total
-            ? ((context.raw / total) * 100).toFixed(1)
-            : 0;
+  const pieOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
 
-          return `${context.label}: ${percentage}%`;
+    plugins: {
+      legend: {
+        position: "bottom",
+
+        labels: {
+          padding: 18,
+          usePointStyle: true,
+          pointStyle: "circle",
+        },
+      },
+
+      tooltip: {
+        callbacks: {
+          label: function (context) {
+            const chartTotal =
+              context.dataset.data.reduce(
+                (sum, value) =>
+                  sum + value,
+                0
+              );
+
+            const percentage =
+              chartTotal
+                ? (
+                    (context.raw /
+                      chartTotal) *
+                    100
+                  ).toFixed(1)
+                : 0;
+
+            return `${context.label}: ${context.raw} (${percentage}%)`;
+          },
         },
       },
     },
-  },
-};
+  };
+
+  /* =========================================================
+     HELPERS
+  ========================================================= */
 
   const getOutcomeClass = (outcome) => {
-    if (outcome === "PASS") return "pass";
-    if (outcome === "FLAG") return "flag";
+    const value = String(
+      outcome || ""
+    )
+      .trim()
+      .toUpperCase();
+
+    if (value === "PASS") {
+      return "pass";
+    }
+
+    if (value === "FLAG") {
+      return "flag";
+    }
+
     return "block";
   };
 
   const getIcon = (outcome) => {
-    if (outcome === "PASS") return "✓";
-    if (outcome === "FLAG") return "⚠";
+    const value = String(
+      outcome || ""
+    )
+      .trim()
+      .toUpperCase();
+
+    if (value === "PASS") {
+      return "✓";
+    }
+
+    if (value === "FLAG") {
+      return "⚠";
+    }
+
     return "✕";
   };
 
   const formatLines = (text) => {
-    if (!text) return [];
+    if (!text) {
+      return [];
+    }
 
     return String(text)
       .split(";")
@@ -226,64 +617,383 @@ const pieOptions = {
       .filter(Boolean);
   };
 
-  const inputFields = [
-    "customer_name",
-    "email",
-    "phone",
-    "address",
-    "dob",
-    "gender",
-    "passport_number",
-    "ni_number",
-    "credit_card_number",
-    "bank_account",
-    "medical_condition",
-    "ethnicity",
-    "religion",
-    "political_view",
-    "employee_id",
-    "department",
-    "job_role",
-    "ip_address"
-  ];
+  const formatDateTime = (value) => {
+    if (!value) {
+      return "—";
+    }
 
-  const now = new Date();
+    const date = new Date(value);
 
-  if (error) {
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+
+    return date.toLocaleString();
+  };
+
+  const formatFieldName = (field) => {
+    return String(field)
+      .replaceAll("_", " ")
+      .replace(
+        /\b\w/g,
+        (letter) =>
+          letter.toUpperCase()
+      );
+  };
+
+  const getRuleDescription = (ruleId) => {
+    const rule = policyRules.find(
+      (item) =>
+        item.rule_id === ruleId
+    );
+
+    return (
+      rule?.description ||
+      "Policy condition detected"
+    );
+  };
+
+  const getRuleOutcome = (ruleId) => {
+    const rule = policyRules.find(
+      (item) =>
+        item.rule_id === ruleId
+    );
+
+    return rule?.outcome || "—";
+  };
+
+  const inputData =
+    selectedDetails?.input_data || {};
+
+  const inputFields =
+    Object.keys(inputData);
+
+  const triggeredRules =
+    formatLines(
+      selectedRecord?.expected_rule_triggers
+    );
+
+  /* =========================================================
+     LOADING
+  ========================================================= */
+  if (page === "dataset") {
+  return (
+    <DatasetEvaluationPage
+      onBack={() => setPage("dashboard")}
+    />
+  );
+}
+  if (loading) {
     return (
       <div className="error-page">
-        <h2>Unable to load dashboard</h2>
-        <p>{error}</p>
-        <p>
-          Place <b>policy_results.xlsx</b> inside the
-          <b> public </b> folder.
-        </p>
+        <h2>
+          Loading dashboard...
+        </h2>
       </div>
     );
   }
 
+  /* =========================================================
+     ERROR
+  ========================================================= */
+
+  if (error) {
+    return (
+      <div className="error-page">
+        <h2>
+          Unable to load dashboard
+        </h2>
+
+        <p>{error}</p>
+
+        <button
+          onClick={() => loadData()}
+          className="filter-button active"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  /* =========================================================
+     MAIN UI
+  ========================================================= */
+
   return (
     <div className="app">
 
+      {/* =====================================================
+          HEADER
+      ===================================================== */}
+
       <header className="header">
-        <div>
+
+        <div className="header-left">
+
           <div className="breadcrumb">
-            Evaluations / Run #1
+            Evaluations
+            {" / "}
+            {currentExecution
+              ? `Run #${currentExecution.id}`
+              : "Run"}
           </div>
 
-          <h1>Policy Evaluation Results</h1>
+          <h1>
+            Policy Evaluation Results
+          </h1>
 
-          <p>{total} records evaluated</p>
+          <p>
+            {total} records evaluated
+          </p>
+
         </div>
 
-        <div className="run-info">
-          <span>RUN DATE & TIME</span>
-          <strong>
-            {now.toLocaleDateString()}{" "}
-            {now.toLocaleTimeString()}
-          </strong>
-        </div>
+      <div className="evaluation-header-actions">
+
+  <div className="run-info">
+    <span className="run-label">
+      RUN DATE & TIME
+    </span>
+
+    <strong className="run-datetime">
+      {currentExecution
+        ? formatDateTime(
+            currentExecution.started_at
+          )
+        : "—"}
+    </strong>
+  </div>
+
+  <div className="header-actions-row">
+
+    <button
+      className="header-action-btn primary"
+      onClick={() => setPage("dataset")}
+    >
+      Dataset Evaluation
+    </button>
+
+    <button
+      className="header-action-btn"
+      onClick={() => setShowHistory(true)}
+    >
+      Evaluation History
+    </button>
+
+  </div>
+
+</div>
+
       </header>
+
+
+      {/* =====================================================
+          EXECUTION OVERVIEW
+      ===================================================== */}
+
+      <section className="execution-overview">
+
+        <div className="execution-overview-header">
+
+          <div>
+
+            <span className="section-eyebrow">
+              EXECUTION
+            </span>
+
+            <h2>
+              Execution #
+              {currentExecution?.id || "—"}
+            </h2>
+
+            <p>
+              {currentExecution?.total_records ||
+                total}{" "}
+              records processed across{" "}
+              {currentExecution?.total_batches ||
+                0}{" "}
+              batches.
+            </p>
+
+          </div>
+
+          <div className="execution-status">
+            <span className="status-pulse"></span>
+            COMPLETED
+          </div>
+
+        </div>
+
+
+        <div className="execution-metrics">
+
+          <div className="execution-metric primary">
+
+            <div className="metric-icon">
+              ◎
+            </div>
+
+            <div>
+              <span>
+                RECORDS EVALUATED
+              </span>
+
+              <strong>
+                {currentExecution?.total_records ||
+                  total}
+              </strong>
+            </div>
+
+          </div>
+
+
+          <div className="execution-metric">
+
+            <div className="metric-icon">
+              ▦
+            </div>
+
+            <div>
+              <span>
+                BATCH SIZE
+              </span>
+
+              <strong>
+                {currentExecution?.batch_size ||
+                  "—"}
+              </strong>
+
+              <small>
+                records / batch
+              </small>
+            </div>
+
+          </div>
+
+
+          <div className="execution-metric">
+
+            <div className="metric-icon">
+              ◫
+            </div>
+
+            <div>
+              <span>
+                BATCHES PROCESSED
+              </span>
+
+              <strong>
+                {currentExecution?.total_batches ||
+                  "—"}
+              </strong>
+
+              <small>
+                total batches
+              </small>
+            </div>
+
+          </div>
+
+
+          <div className="execution-metric">
+
+            <div className="metric-icon">
+              ◷
+            </div>
+
+            <div>
+              <span>
+                STARTED
+              </span>
+
+              <strong className="date-value">
+                {currentExecution
+                  ? formatDateTime(
+                      currentExecution.started_at
+                    )
+                  : "—"}
+              </strong>
+            </div>
+
+          </div>
+
+        </div>
+
+
+        {/* BATCH PROGRESS */}
+
+        {currentExecution && (
+          <div className="batch-progress">
+
+            <div className="batch-progress-header">
+
+              <div>
+
+                <span>
+                  BATCH PROCESSING
+                </span>
+
+                <strong>
+                  {
+                    currentExecution.total_records
+                  }{" "}
+                  records
+                  {" · "}
+                  {
+                    currentExecution.total_batches
+                  }{" "}
+                  batches
+                </strong>
+
+              </div>
+
+              <strong>
+                {batchProgress}%
+              </strong>
+
+            </div>
+
+
+            <div className="progress-track">
+
+              <div
+                className="progress-fill"
+                style={{
+                  width: `${batchProgress}%`,
+                }}
+              />
+
+            </div>
+
+
+            <div className="batch-labels">
+
+              <span>
+                {
+                  currentExecution.total_batches
+                }{" "}
+                batches processed
+              </span>
+
+              <span>
+                {
+                  currentExecution.batch_size
+                }{" "}
+                records / batch
+              </span>
+
+            </div>
+
+          </div>
+        )}
+
+      </section>
+
+
+      {/* =====================================================
+          SUMMARY + CHART
+      ===================================================== */}
 
       <section className="overview">
 
@@ -292,324 +1002,889 @@ const pieOptions = {
           <div className="summary-grid">
 
             <div className="summary-card pass-card">
-              <span className="card-label">✓ PASS</span>
-              <strong>{passed}</strong>
+
+              <span className="card-label">
+                ✓ PASS
+              </span>
+
+              <strong>
+                {passed}
+              </strong>
+
               <small>
                 {total
-                  ? ((passed / total) * 100).toFixed(1)
+                  ? (
+                      (passed /
+                        total) *
+                      100
+                    ).toFixed(1)
                   : 0}
                 %
               </small>
+
             </div>
+
 
             <div className="summary-card flag-card">
-              <span className="card-label">⚠ FLAG</span>
-              <strong>{flagged}</strong>
+
+              <span className="card-label">
+                ⚠ FLAG
+              </span>
+
+              <strong>
+                {flagged}
+              </strong>
+
               <small>
                 {total
-                  ? ((flagged / total) * 100).toFixed(1)
+                  ? (
+                      (flagged /
+                        total) *
+                      100
+                    ).toFixed(1)
                   : 0}
                 %
               </small>
+
             </div>
+
 
             <div className="summary-card block-card">
-              <span className="card-label">✕ BLOCK</span>
-              <strong>{blocked}</strong>
+
+              <span className="card-label">
+                ✕ BLOCK
+              </span>
+
+              <strong>
+                {blocked}
+              </strong>
+
               <small>
                 {total
-                  ? ((blocked / total) * 100).toFixed(1)
+                  ? (
+                      (blocked /
+                        total) *
+                      100
+                    ).toFixed(1)
                   : 0}
                 %
               </small>
+
             </div>
 
+
             <div className="summary-card rate-card">
-              <span className="card-label">◔ PASS RATE</span>
-              <strong>{passRate}%</strong>
+
+              <span className="card-label">
+                ◔ PASS RATE
+              </span>
+
+              <strong>
+                {passRate}%
+              </strong>
+
               <small>
                 {passed}/{total} passed
               </small>
+
             </div>
 
           </div>
 
         </div>
 
+
         <div className="chart-section">
-          <h3>Outcome Distribution</h3>
+
+          <div className="chart-header">
+
+            <div>
+              <span className="section-eyebrow">
+                DISTRIBUTION
+              </span>
+
+              <h3>
+                Outcome Distribution
+              </h3>
+            </div>
+
+          </div>
 
           <div className="pie-container">
+
             <Pie
               data={pieData}
               options={pieOptions}
             />
+
           </div>
+
         </div>
 
       </section>
 
+
+      {/* =====================================================
+          POLICY DEFINITIONS
+      ===================================================== */}
+
+<section className="policy-definitions-section">
+  <div className="section-heading">
+    <h2>Policy Definitions</h2>
+    <p>Key data classification categories used in policy evaluation</p>
+  </div>
+
+  <div className="policy-definitions-row">
+    <div className="policy-definition-card">
+      <div className="policy-definition-code">PII</div>
+      <div className="policy-definition-content">
+        <h3>Personally Identifiable Information</h3>
+        <p>
+          Information that can directly identify or be linked to an
+          individual.
+        </p>
+      </div>
+    </div>
+
+    <div className="policy-definition-card">
+      <div className="policy-definition-code">SPII</div>
+      <div className="policy-definition-content">
+        <h3>Sensitive Personally Identifiable Information</h3>
+        <p>
+          Sensitive personal information requiring stronger protection
+          and handling controls.
+        </p>
+      </div>
+    </div>
+
+    <div className="policy-definition-card">
+      <div className="policy-definition-code">CPII</div>
+      <div className="policy-definition-content">
+        <h3>Combined Personally Identifiable Information</h3>
+        <p>
+          A combination of data elements that together can identify or
+          re-identify an individual.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+      {/* =====================================================
+          MAIN CONTENT
+      ===================================================== */}
+
       <section className="main-content">
+
+
+        {/* ===================================================
+            RECORDS
+        =================================================== */}
 
         <div className="records-panel">
 
           <div className="panel-header">
+
             <div>
-              <h2>Records</h2>
-              <span>{filteredData.length} records shown</span>
+
+              <span className="section-eyebrow">
+                EVALUATED RECORDS
+              </span>
+
+              <h2>
+                Records
+              </h2>
+
+              <span>
+                {filteredData.length}{" "}
+                {filter} records shown
+              </span>
+
             </div>
+
           </div>
 
-          <input
-            className="search"
-            placeholder="Search records..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+
+          {/* FILTERS */}
 
           <div className="filters">
+            <button
+              type="button"
+              className={`filter-button ${
+                filter === "PASS" ? "active" : ""
+              }`}
+              onClick={() => setFilter("PASS")}
+            >
+              ✓ PASS
+            </button>
 
-            {["All", "PASS", "FLAG", "BLOCK"].map((name) => (
-              <button
-                key={name}
-                className={`filter-button ${
-                  filter === name ? "active" : ""
-                }`}
-                onClick={() => setFilter(name)}
-              >
-                {name === "PASS" && "✓ "}
-                {name === "FLAG" && "⚠ "}
-                {name === "BLOCK" && "✕ "}
-                {name}
-              </button>
-            ))}
+            <button
+              type="button"
+              className={`filter-button ${
+                filter === "FLAG" ? "active" : ""
+              }`}
+              onClick={() => setFilter("FLAG")}
+            >
+              ⚠ FLAG
+            </button>
 
+            <button
+              type="button"
+              className={`filter-button ${
+                filter === "BLOCK" ? "active" : ""
+              }`}
+              onClick={() => setFilter("BLOCK")}
+            >
+              ✕ BLOCK
+            </button>
           </div>
+
+
+          {/* RECORD LIST */}
 
           <div className="record-list">
 
-            {filteredData.map((record) => {
-              const outcome = record.expected_outcome;
-              const rules =
-                record.expected_rule_triggers || "No violations";
+            {filteredData.length >
+            0 ? (
 
-              return (
-                <button
-                  key={record.record_id}
-                  className={`record-item ${
-                    String(selectedId) ===
-                    String(record.record_id)
-                      ? "selected"
-                      : ""
-                  }`}
-                  onClick={() =>
-                    setSelectedId(record.record_id)
-                  }
-                >
+              filteredData.map(
+                (record) => {
 
-                  <span
-                    className={`status-dot ${getOutcomeClass(
-                      outcome
-                    )}`}
-                  >
-                    {getIcon(outcome)}
-                  </span>
+                  const outcome =
+                    String(
+                      record.decision ??
+                        record.expected_outcome ??
+                        ""
+                    )
+                      .trim()
+                      .toUpperCase();
 
-                  <div className="record-info">
-                    <strong>
-                      REC-
-                      {String(record.record_id).padStart(
-                        4,
-                        "0"
-                      )}
-                    </strong>
+                  const rules =
+                    record.expected_rule_triggers ||
+                    "No violations";
 
-                    <span>{rules}</span>
-                  </div>
+                  return (
 
-                  <span
-                    className={`outcome-text ${getOutcomeClass(
-                      outcome
-                    )}`}
-                  >
-                    {outcome}
-                  </span>
+                    <button
+                      type="button"
+                      key={
+                        record.record_id
+                      }
+                      className={`record-item ${
+                        String(
+                          selectedId
+                        ) ===
+                        String(
+                          record.record_id
+                        )
+                          ? "selected"
+                          : ""
+                      }`}
+                      onClick={() =>
+                        handleSelectRecord(
+                          record.record_id
+                        )
+                      }
+                    >
 
-                </button>
-              );
-            })}
+                      <span
+                        className={`status-dot ${getOutcomeClass(
+                          outcome
+                        )}`}
+                      >
+                        {getIcon(
+                          outcome
+                        )}
+                      </span>
+
+
+                      <div className="record-info">
+
+                        <strong>
+                          REC-
+                          {String(
+                            record.record_id
+                          ).padStart(
+                            4,
+                            "0"
+                          )}
+                        </strong>
+
+                        <span>
+                          {rules}
+                        </span>
+
+                      </div>
+
+
+                      <span
+                        className={`outcome-text ${getOutcomeClass(
+                          outcome
+                        )}`}
+                      >
+                        {outcome}
+                      </span>
+
+                    </button>
+
+                  );
+                }
+              )
+
+            ) : (
+
+              <div className="no-violations">
+
+                No{" "}
+                {filter.toLowerCase()}{" "}
+                records found.
+
+              </div>
+
+            )}
 
           </div>
 
         </div>
 
+
+        {/* ===================================================
+            RECORD ANALYSIS
+        =================================================== */}
+
         <div className="analysis-panel">
 
           {selectedRecord ? (
+
             <>
+
+              {/* ANALYSIS HEADER */}
+
               <div className="analysis-header">
 
                 <div>
+
                   <span className="analysis-label">
-                    RECORD POLICY ANALYSIS
+                    RECORD POLICY
+                    ANALYSIS
                   </span>
 
                   <h2>
                     REC-
                     {String(
                       selectedRecord.record_id
-                    ).padStart(4, "0")}
+                    ).padStart(
+                      4,
+                      "0"
+                    )}
                   </h2>
+
                 </div>
+
 
                 <span
                   className={`outcome-badge ${getOutcomeClass(
-                    selectedRecord.expected_outcome
+                    selectedRecord.decision
                   )}`}
                 >
+
                   {getIcon(
-                    selectedRecord.expected_outcome
-                  )}{" "}
-                  {selectedRecord.expected_outcome}
+                    selectedRecord.decision
+                  )}
+
+                  {" "}
+
+                  {selectedRecord.decision}
+
                 </span>
 
               </div>
 
+
               <div className="analysis-content">
 
-                <section className="analysis-section">
-                  <h3>Policy Rules</h3>
 
-                  {selectedRecord.expected_rule_triggers ? (
+                {/* POLICY RULES */}
+
+                <section className="analysis-section">
+
+                  <div className="analysis-section-header">
+
+                    <span className="section-eyebrow">
+                      POLICY MATCH
+                    </span>
+
+                    <h3>
+                      Policy Rules
+                    </h3>
+
+                  </div>
+
+
+                  {triggeredRules.length >
+                  0 ? (
+
                     <div className="rule-list">
 
-                      {formatLines(
-                        selectedRecord.expected_rule_triggers
-                      ).map((rule) => (
-                        <div
-                          className="rule-item"
-                          key={rule}
-                        >
-                          <strong>{rule}</strong>
-                          <span>
-                            {RULES[rule] ||
-                              "Policy condition detected"}
-                          </span>
-                        </div>
-                      ))}
+                      {triggeredRules.map(
+                        (rule) => (
+
+                          <div
+                            className="rule-item"
+                            key={rule}
+                          >
+
+                            <strong>
+                              {rule}
+                            </strong>
+
+                            <span>
+                              {getRuleDescription(
+                                rule
+                              )}
+                            </span>
+
+                            <small>
+                              Outcome:{" "}
+                              {getRuleOutcome(
+                                rule
+                              )}
+                            </small>
+
+                          </div>
+
+                        )
+                      )}
 
                     </div>
+
                   ) : (
+
                     <div className="no-violations">
-                      ✓ No policy violations detected
+
+                      ✓ No policy
+                      violations
+                      detected
+
                     </div>
+
                   )}
 
                 </section>
 
-<section className="analysis-section">
-  <h3>Explanation</h3>
 
-  <div className="line-list">
-
-    {formatLines(
-      selectedRecord.expected_rule_triggers
-    ).length === 0 ? (
-
-      <div className="line-item">
-        <span>•</span>
-        No PII or sensitive information detected.
-      </div>
-
-    ) : (
-
-      formatLines(
-        selectedRecord.expected_rule_triggers
-      ).map((rule, index) => (
-
-        <div
-          className="line-item"
-          key={index}
-        >
-          <span>•</span>
-          {EXPLANATIONS[rule] || "Policy violation detected."}
-        </div>
-
-      ))
-
-    )}
-
-  </div>
-</section>
+                {/* EXPLANATION */}
 
                 <section className="analysis-section">
-                  <h3>Input Data</h3>
+
+                  <div className="analysis-section-header">
+
+                    <span className="section-eyebrow">
+                      EVALUATION
+                    </span>
+
+                    <h3>
+                      Explanation
+                    </h3>
+
+                  </div>
+
+
+                  <div className="line-list">
+
+                    <div className="line-item">
+
+                      <span>
+                        •
+                      </span>
+
+                      <span>
+
+                        {triggeredRules.length ===
+                        0
+                          ? "No PII or sensitive information detected."
+                          : selectedRecord.expected_reason ||
+                            "Policy rule conditions were triggered for this record."}
+
+                      </span>
+
+                    </div>
+
+                  </div>
+
+                </section>
+
+
+                {/* INPUT DATA */}
+
+                <section className="analysis-section">
+
+                  <div className="analysis-section-header">
+
+                    <span className="section-eyebrow">
+                      SOURCE RECORD
+                    </span>
+
+                    <h3>
+                      Input Data
+                    </h3>
+
+                  </div>
+
 
                   <div className="input-grid">
 
-                    {inputFields.map((field) => {
-                      const value = selectedRecord[field];
+                    {inputFields.length >
+                    0 ? (
 
-                      if (
-                        value === undefined ||
-                        value === null ||
-                        String(value).trim() === ""
-                      ) {
-                        return null;
-                      }
+                      inputFields.map(
+                        (field) => {
 
-                      return (
-                        <div
-                          className="input-item"
-                          key={field}
-                        >
-                          <span>
-                            {field
-                              .replaceAll("_", " ")
-                              .replace(/\b\w/g, (l) =>
-                                l.toUpperCase()
-                              )}
-                          </span>
+                          const value =
+                            inputData[
+                              field
+                            ];
 
-                          <strong>{String(value)}</strong>
-                        </div>
-                      );
-                    })}
+                          return (
+
+                            <div
+                              className="input-item"
+                              key={field}
+                            >
+
+                              <span>
+                                {formatFieldName(
+                                  field
+                                )}
+                              </span>
+
+                              <strong>
+
+                                {value ===
+                                  null ||
+                                value ===
+                                  undefined ||
+                                String(
+                                  value
+                                ).trim() ===
+                                  ""
+                                  ? "—"
+                                  : String(
+                                      value
+                                    )}
+
+                              </strong>
+
+                            </div>
+
+                          );
+                        }
+                      )
+
+                    ) : (
+
+                      <div className="no-violations">
+                        No input data
+                        available.
+                      </div>
+
+                    )}
 
                   </div>
-                </section>
-<section className="analysis-section">
-  <h3>Suggested Remediation</h3>
 
-  <div className="remediation-list">
-    {formatLines(selectedRecord.expected_rule_triggers).length === 0 ? (
-      <div className="remediation-item">
-        <span>→</span>
-        <span>No remediation required.</span>
-      </div>
-    ) : (
-      formatLines(selectedRecord.expected_rule_triggers).map((rule, index) => (
-        <div className="remediation-item" key={index}>
-          <span>→</span>
-          <span>
-            <strong>{rule}:</strong> {REMEDIATIONS[rule]}
-          </span>
-        </div>
-      ))
-    )}
-  </div>
-</section>
+                </section>
+
+
+                {/* REMEDIATION */}
+
+                <section className="analysis-section">
+
+                  <div className="analysis-section-header">
+
+                    <span className="section-eyebrow">
+                      ACTION
+                    </span>
+
+                    <h3>
+                      Suggested
+                      Remediation
+                    </h3>
+
+                  </div>
+
+
+                  <div className="remediation-list">
+
+                    <div className="remediation-item">
+
+                      <span>
+                        →
+                      </span>
+
+                      <span>
+
+                        {selectedRecord
+                          .suggested_remediation ||
+                          "No remediation required."}
+
+                      </span>
+
+                    </div>
+
+                  </div>
+
+                </section>
+
               </div>
+
             </>
+
           ) : (
-            <div className="empty-analysis">
-              Select a record to view analysis
+
+            <div className="no-selection">
+
+              <h3>
+                Select a record
+              </h3>
+
+              <p>
+                Select a record from the
+                list to view its policy
+                analysis.
+              </p>
+
             </div>
+
           )}
 
         </div>
 
       </section>
+
+
+      {/* =====================================================
+          RIGHT SIDE EVALUATION HISTORY DRAWER
+      ===================================================== */}
+
+      {showHistory && (
+
+        <div
+          className="history-overlay"
+          onClick={() =>
+            setShowHistory(false)
+          }
+        >
+
+          <aside
+            className="history-drawer"
+            onClick={(event) =>
+              event.stopPropagation()
+            }
+          >
+
+            <div className="history-drawer-header">
+
+              <div>
+
+                <span className="section-eyebrow">
+                  DATABASE
+                </span>
+
+                <h2>
+                  Evaluation History
+                </h2>
+
+                <p>
+                  Previous policy
+                  evaluation runs
+                </p>
+
+              </div>
+
+
+              <button
+                type="button"
+                className="history-close"
+                onClick={() =>
+                  setShowHistory(false)
+                }
+              >
+                ×
+              </button>
+
+            </div>
+
+
+            <div className="history-drawer-list">
+
+              {executions.length >
+              0 ? (
+
+                executions.map(
+                  (
+                    execution,
+                    index
+                  ) => {
+
+                    const executionPass =
+                      execution.pass_count ??
+                      "—";
+
+                    const executionFlag =
+                      execution.flag_count ??
+                      "—";
+
+                    const executionBlock =
+                      execution.block_count ??
+                      "—";
+
+                    const isSelected =
+                      Number(
+                        selectedExecutionId
+                      ) ===
+                      Number(
+                        execution.id
+                      );
+
+                    return (
+
+                      <button
+                        type="button"
+                        key={
+                          execution.id
+                        }
+                        className={`history-run-card ${
+                          index === 0
+                            ? "current-run"
+                            : ""
+                        } ${
+                          isSelected
+                            ? "selected-history"
+                            : ""
+                        }`}
+                        onClick={() => {
+
+                          setFilter(
+                            "PASS"
+                          );
+
+                          loadData(
+                            execution.id
+                          );
+
+                          setShowHistory(
+                            false
+                          );
+
+                        }}
+                      >
+
+                        <div className="history-run-top">
+
+                          <strong>
+                            Run #
+                            {
+                              execution.id
+                            }
+                          </strong>
+
+                          {index ===
+                            0 && (
+
+                            <span className="history-current-label">
+                              CURRENT
+                            </span>
+
+                          )}
+
+                        </div>
+
+
+                        <div className="history-run-outcomes">
+
+                          <span className="history-pass">
+                            ✓{" "}
+                            {
+                              executionPass
+                            }
+                          </span>
+
+                          <span className="history-flag">
+                            ⚠{" "}
+                            {
+                              executionFlag
+                            }
+                          </span>
+
+                          <span className="history-block">
+                            ✕{" "}
+                            {
+                              executionBlock
+                            }
+                          </span>
+
+                        </div>
+
+
+                        <div className="history-run-date">
+
+                          {formatDateTime(
+                            execution.started_at
+                          )}
+
+                        </div>
+
+
+                        <div className="history-run-meta">
+
+                          <span>
+                            {
+                              execution.total_records
+                            }{" "}
+                            records
+                          </span>
+
+                          <span>
+                            {
+                              execution.batch_size
+                            }{" "}
+                            / batch
+                          </span>
+
+                          <span>
+                            {
+                              execution.total_batches
+                            }{" "}
+                            batches
+                          </span>
+
+                        </div>
+
+                      </button>
+
+                    );
+                  }
+                )
+
+              ) : (
+
+                <div className="no-history">
+
+                  No evaluation
+                  history available.
+
+                </div>
+
+              )}
+
+            </div>
+
+          </aside>
+
+        </div>
+
+      )}
 
     </div>
   );

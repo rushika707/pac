@@ -2,7 +2,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-
+import argparse
 import pandas as pd
 
 
@@ -65,7 +65,25 @@ def normalize_rules(value):
     )
 
 
-def evaluate():
+def evaluate(
+    policy_file=None,
+    mapped_file=None,
+    rego_file=None,
+    output_file=None,
+):
+    global REGO_FILE, OUTPUT_FILE
+
+    if rego_file:
+        REGO_FILE = Path(rego_file)
+
+    if output_file:
+        OUTPUT_FILE = Path(output_file)
+
+    mapped_policy = None
+
+    if mapped_file:
+        with open(mapped_file, "r", encoding="utf-8") as f:
+            mapped_policy = json.load(f)
 
     df = pd.read_excel(INPUT_FILE)
 
@@ -84,14 +102,17 @@ def evaluate():
 
         opa_result = run_opa(record)
 
-        python_result = check_record(row)
+        python_result = check_record(
+            row,
+            mapped_policy=mapped_policy,
+        )
 
         python_decision = str(
-            python_result[0]
+            python_result.get("expected_outcome", "")
         ).strip()
 
         python_rules = normalize_rules(
-            python_result[1]
+            python_result.get("expected_rule_triggers", "")
         )
 
         opa_decision = str(
@@ -174,4 +195,38 @@ def evaluate():
 
 
 if __name__ == "__main__":
-    evaluate()
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "--policy",
+        type=Path,
+        default=None,
+    )
+
+    parser.add_argument(
+        "--mapped",
+        type=Path,
+        default=None,
+    )
+
+    parser.add_argument(
+        "--rego",
+        type=Path,
+        default=None,
+    )
+
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+    )
+
+    args = parser.parse_args()
+
+    evaluate(
+        policy_file=args.policy,
+        mapped_file=args.mapped,
+        rego_file=args.rego,
+        output_file=args.output,
+    )
